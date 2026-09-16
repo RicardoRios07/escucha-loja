@@ -55,7 +55,7 @@ export default function PageBanner({
         )}
         {!(actions || leading) && <Logo height={full ? 30 : 26} />}
         {eyebrow && (
-          <p className={`inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-white/90 ${actions || leading ? 'mt-3' : 'mt-3'}`}>
+          <p className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-white/90">
             {eyebrow}
           </p>
         )}

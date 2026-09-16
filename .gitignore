@@ -5,3 +5,5 @@ dist/
 .openchamber/
 .env
 .env.*
+.vercel
+.env*
