@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import LojaMap3D, { type LojaReport } from '../../components/escucha/LojaMap3D'
+import { PanelPage } from '../../components/escucha/PanelPage'
 import { ensureSeed, getBarrioAprox, getDenuncias } from '../../lib/escucha/store'
 
 /** Tab Mapa: mapa real de Loja (terreno DEM, edificios, heatmap de reportes). */
@@ -24,19 +25,16 @@ export default function MapaPage() {
   }, [])
 
   return (
-    <main className="mx-auto w-full max-w-[1240px] px-5 py-6 lg:px-10">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-black tracking-tight text-[#111]">Mapa</h1>
-          <p className="mt-0.5 text-[13px] text-[#111]/55">
-            {reports.length} aportes · terreno y edificios reales de Loja
-          </p>
+    <PanelPage
+      eyebrow="Panel · territorio"
+      title="Mapa"
+      subtitle="Ubica cada aporte sobre el terreno y los edificios reales de Loja para visualizar las zonas con mayor acumulación de reportes."
+    >
+      <div className="relative h-[65vh] min-h-[420px] overflow-hidden rounded-[22px] border border-[#e2e9f6] bg-white p-3 shadow-sm">
+        <div className="relative h-full w-full overflow-hidden rounded-[16px]">
+          <LojaMap3D reports={reports} />
         </div>
       </div>
-
-      <div className="relative mt-4 h-[65vh] min-h-[420px] overflow-hidden rounded-2xl border">
-        <LojaMap3D reports={reports} />
-      </div>
-    </main>
+    </PanelPage>
   )
 }

@@ -14,7 +14,9 @@ const tabLinkBase =
 
 /**
  * Shell del administrador: sidebar con estilo banner (desktop lg+) y
- * header compacto + tab bar inferior (mobile), como en /vecino.
+ * tab bar inferior (mobile). Cada página del panel dibuja su propia app bar
+ * móvil con PageBanner (como en /vecino); aquí solo se provee el cierre de
+ * sesión vía contexto del Outlet.
  */
 export default function AdminShell() {
   const navigate = useNavigate()
@@ -68,23 +70,7 @@ export default function AdminShell() {
 
       {/* Contenido */}
       <div className="min-w-0 flex-1 pb-[calc(64px+env(safe-area-inset-bottom))] lg:pb-0">
-        {/* Header compacto solo móvil */}
-        <header className="sticky top-0 z-40 overflow-hidden bg-[#002693] text-white lg:hidden">
-          <div className="halftone halftone-tiny pointer-events-none absolute inset-0 opacity-[0.16]" aria-hidden="true" />
-          <div className="pointer-events-none absolute -right-16 -top-16 h-40 w-40 rounded-full bg-[#0635c4] opacity-70 blur-3xl" aria-hidden="true" />
-          <div className="relative flex items-center justify-between gap-3 px-4 py-2.5">
-            <Logo height={26} />
-            <button
-              onClick={logout}
-              aria-label="Cerrar sesión de administrador"
-              className="grid h-11 w-11 place-items-center rounded-xl text-white/80 transition-colors hover:bg-white/10 hover:text-white active:scale-95"
-            >
-              <LogOut size={18} aria-hidden="true" />
-            </button>
-          </div>
-        </header>
-
-        <Outlet />
+        <Outlet context={{ manejarSalir: logout }} />
       </div>
 
       {/* Tab bar móvil: oculta en desktop */}

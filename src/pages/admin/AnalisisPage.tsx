@@ -2,20 +2,20 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle,
   ArrowRight,
+  BarChart3,
   BusFront,
-  CalendarDays,
   ChevronDown,
   CircleDashed,
   Cpu,
   Droplets,
   MessageSquareText,
-  RefreshCw,
   Sparkles,
   Star,
   TrendingUp,
   TriangleAlert,
   Wrench,
 } from 'lucide-react'
+import { PanelCard, PanelPage } from '../../components/escucha/PanelPage'
 import { generateAnalysis, type AnalysisReport, type LecturaUnificada } from '../../lib/escucha/analisis'
 import {
   ensureSeed,
@@ -34,16 +34,6 @@ import {
   type IASnapshot,
 } from '../../lib/escucha/iaHistorial'
 import type { MvpDenuncia } from '../../lib/escucha/types'
-
-function haceCuanto(ts: number): string {
-  const s = Math.max(1, Math.round((Date.now() - ts) / 1000))
-  if (s < 60) return `${s} s`
-  const m = Math.round(s / 60)
-  if (m < 60) return `${m} min`
-  const h = Math.round(m / 60)
-  if (h < 24) return `${h} h`
-  return `${Math.round(h / 24)} d`
-}
 
 interface Contexto {
   denuncias: MvpDenuncia[]
@@ -67,11 +57,9 @@ function computeContexto(): Contexto {
 }
 
 export default function AnalisisPage() {
-  const [verMetodo, setVerMetodo] = useState(false)
+  const [verSectores, setVerSectores] = useState(false)
   const [ctx, setCtx] = useState<Contexto>(computeContexto)
   const [snapshotIA, setSnapshotIA] = useState<IASnapshot | null>(null)
-  const [cargandoIA, setCargandoIA] = useState(false)
-  const [falloIA, setFalloIA] = useState(false)
   const llmRef = useRef<LLMProvider | null>(null)
 
   const getLlm = () => {
@@ -100,7 +88,6 @@ export default function AnalisisPage() {
   }, [])
 
   const ejecutaIA = useCallback(async () => {
-    setCargandoIA(true)
     try {
       const res = await getLlm().generateAnalysis(ctx.denuncias, getClusters(ctx.denuncias))
       if (res.aiAvailable) {
@@ -114,12 +101,9 @@ export default function AnalisisPage() {
         }
         await guardaSnapshotIA(nuevo)
         setSnapshotIA(nuevo)
-        setFalloIA(false)
-      } else {
-        setFalloIA(true)
       }
-    } finally {
-      setCargandoIA(false)
+    } catch {
+      /* la lectura heurística actúa de respaldo */
     }
   }, [ctx.denuncias, ctx.fp])
 
@@ -142,6 +126,51 @@ export default function AnalisisPage() {
   const criticalCount = ctx.denuncias.filter((d) => d.encuesta.gravedad === 'Crítica').length
   const movilidadCount = ctx.denuncias.filter((d) => d.categoriaLabel === 'Movilidad').length
   const movilidadPct = ctx.denuncias.length ? Math.round((movilidadCount / ctx.denuncias.length) * 100) : 0
+
+  const graveOrd: Record<string, number> = { Baja: 1, Media: 2, Alta: 3, Crítica: 4 }
+
+  interface SectorInfo {
+    sector: string
+    casos: number
+    gravedadMax: string
+    categorias: string[]
+  }
+
+  const sectoresHeuristicos: SectorInfo[] = (() => {
+    const map = new Map<string, SectorInfo>()
+    for (const p of reporte.prioridades) {
+      const prev = map.get(p.sector)
+      if (prev) {
+        prev.casos += p.casos
+        if (graveOrd[p.gravedadMax] > graveOrd[prev.gravedadMax]) prev.gravedadMax = p.gravedadMax
+        if (!prev.categorias.includes(p.categoriaPrincipal)) prev.categorias.push(p.categoriaPrincipal)
+      } else {
+        map.set(p.sector, {
+          sector: p.sector,
+          casos: p.casos,
+          gravedadMax: p.gravedadMax,
+          categorias: [p.categoriaPrincipal],
+        })
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.casos - a.casos)
+  })()
+
+  const sectoresUnificados: SectorInfo[] = (() => {
+    const porSector = new Map(sectoresHeuristicos.map((s) => [s.sector, s]))
+    const ordenIA = conIA
+      ? Array.from(new Set(lectura.recomendaciones.map((r) => r.sector).filter(Boolean)))
+      : []
+    if (ordenIA.length > 0) {
+      return [
+        ...ordenIA.map((s) => porSector.get(s)).filter((s): s is SectorInfo => !!s),
+        ...sectoresHeuristicos.filter((s) => !ordenIA.includes(s.sector)),
+      ].slice(0, 4)
+    }
+    return sectoresHeuristicos.slice(0, 4)
+  })()
+
+  const maxSectoresCasos = Math.max(1, ...sectoresUnificados.map((s) => s.casos))
 
   const maxPriority = ctx.denuncias.length
     ? Math.max(0, ...getScoredDenuncias(ctx.denuncias, getClusters(ctx.denuncias)).map((d) => d._score ?? 0))
@@ -203,32 +232,12 @@ export default function AnalisisPage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-[1240px] px-4 py-6 lg:px-8">
-      <div className="rounded-[28px] border border-[#e3eaf5] bg-[#f4f7fb] p-4 shadow-[0_12px_28px_rgba(15,23,42,0.06)] lg:p-6">
-        <header className="mb-5 flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#7283a8]">Panel · ciudad</p>
-            <h1 className="mt-1 text-[clamp(2.2rem,3vw,3.1rem)] font-black leading-none tracking-[-0.045em] text-[#111827]">
-              Análisis
-            </h1>
-            <p className="mt-2 max-w-xl text-sm leading-relaxed text-[#4b5a78]">
-              Conoce el panorama general de los aportes ciudadanos y detecta los principales
-              tendencias para tomar mejores decisiones.
-            </p>
-          </div>
-
-          <div className="inline-flex items-center gap-2 rounded-full border border-[#dfe7f5] bg-white px-3 py-2 text-[12px] font-bold text-[#1f2b4d] shadow-sm">
-            <CalendarDays size={15} className="text-[#002693]" aria-hidden="true" />
-            <span>19/09/2026</span>
-            <span className="text-[#8aa0c4]">•</span>
-            <span className="text-[#52627f]">Datos actualizados</span>
-            <span className="ml-1 rounded-full bg-[#edf2ff] px-2 py-0.5 text-[10px] font-black text-[#002693]">
-              {haceCuanto(reporte.generadoEn ? new Date(reporte.generadoEn).getTime() : Date.now())}
-            </span>
-          </div>
-        </header>
-
-        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+    <PanelPage
+      eyebrow="Panel · ciudad"
+      title="Análisis"
+      subtitle="Conoce el panorama general de los aportes ciudadanos y detecta los principales tendencias para tomar mejores decisiones."
+    >
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {[
             {
               label: 'Total de aportes',
@@ -320,21 +329,17 @@ export default function AnalisisPage() {
             </div>
           </div>
 
-          <div className="rounded-[22px] border border-[#e2e9f6] bg-white p-4 shadow-sm">
-            <div className="flex items-center justify-between gap-3 pb-2">
-              <div className="flex items-center gap-2 text-[#1b2b4d]">
-                <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#edf3ff]">
-                  <TrendingUp size={18} className="text-[#002693]" aria-hidden="true" />
-                </div>
-                <h2 className="text-[18px] font-black">Tendencia de aportes</h2>
-              </div>
+          <PanelCard
+            icon={TrendingUp}
+            title="Tendencia de aportes"
+            action={
               <div className="flex gap-2 text-[11px] font-bold text-[#5d6f92]">
                 <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-[#002693]" /> Total</span>
                 <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-[#fe4102]" /> Casos críticos</span>
               </div>
-            </div>
-
-            <div className="mt-3 h-[180px] rounded-2xl bg-[#f5f8ff] p-2">
+            }
+          >
+            <div className="h-[180px] rounded-2xl bg-[#f5f8ff] p-2">
               <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="h-full w-full">
                 <defs>
                   <linearGradient id="lineBlue" x1="0%" x2="100%" y1="0%" y2="0%">
@@ -371,16 +376,9 @@ export default function AnalisisPage() {
                 <span key={label}>{label}</span>
               ))}
             </div>
-          </div>
+          </PanelCard>
 
-          <div className="rounded-[22px] border border-[#e2e9f6] bg-white p-4 shadow-sm">
-            <div className="flex items-center gap-2 text-[#1b2b4d]">
-              <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#edf3ff]">
-                <ArrowRight size={18} className="text-[#002693]" aria-hidden="true" />
-              </div>
-              <h2 className="text-[18px] font-black">Aportes por categoría</h2>
-            </div>
-
+          <PanelCard icon={ArrowRight} title="Aportes por categoría">
             <div className="mt-4 flex items-center justify-between gap-3">
               <div
                 className="relative grid h-36 w-36 place-items-center rounded-full"
@@ -406,53 +404,76 @@ export default function AnalisisPage() {
                 ))}
               </div>
             </div>
-          </div>
+          </PanelCard>
         </section>
 
         <section className="mt-5 grid gap-4 xl:grid-cols-[1.15fr_1.35fr_1.1fr]">
-          <div className="rounded-[22px] border border-[#e2e9f6] bg-white p-4 shadow-sm">
-            <div className="flex items-center gap-2 text-[#1b2b4d]">
-              <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#edf3ff]">
-                <Wrench size={18} className="text-[#002693]" aria-hidden="true" />
-              </div>
-              <h2 className="text-[18px] font-black">Prioridad por sector</h2>
-            </div>
-
+          <PanelCard className="min-w-0" id="sectores" icon={Wrench} title="Prioridad por sector">
             <div className="mt-4 space-y-3">
-              {reporte.prioridades.length === 0 ? (
+              {sectoresUnificados.length === 0 ? (
                 <p className="text-sm text-[#5d6f92]">Aún no hay sectores para priorizar.</p>
               ) : (
-                reporte.prioridades.slice(0, 4).map((item) => (
+                sectoresUnificados.map((item, i) => (
                   <div key={item.sector} className="space-y-2">
-                    <div className="flex items-center justify-between gap-2 text-[13px] font-bold text-[#1f2b4d]">
-                      <span className="inline-flex items-center gap-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-wrap items-center gap-2 text-[13px] font-bold text-[#1f2b4d]">
                         <span className="grid h-6 w-6 place-items-center rounded-full bg-[#002693] text-[11px] font-black text-white">
-                          {item.orden}
+                          {i + 1}
                         </span>
-                        {item.sector}
-                      </span>
-                      <span className="text-[#5d6f92]">{item.casos} casos</span>
+                        <span>{item.sector}</span>
+                        <span className="text-[11px] font-semibold text-[#5d6f92]">
+                          {item.casos} casos · {item.gravedadMax}
+                          {item.categorias.length > 0 ? ` · ${item.categorias.join(', ')}` : ''}
+                        </span>
+                      </div>
                     </div>
                     <div className="h-2.5 overflow-hidden rounded-full bg-[#edf3ff]">
                       <div
                         className="h-full rounded-full bg-gradient-to-r from-[#0d2d8c] via-[#1a47d8] to-[#7ca2ff]"
-                        style={{ width: `${Math.max(18, Math.min(100, item.casos * 18))}%` }}
+                        style={{ width: `${Math.max(18, Math.min(100, (item.casos / maxSectoresCasos) * 100))}%` }}
                       />
                     </div>
                   </div>
                 ))
               )}
             </div>
-          </div>
 
-          <div className="rounded-[22px] border border-[#e2e9f6] bg-white p-4 shadow-sm">
-            <div className="flex items-center gap-2 text-[#1b2b4d]">
-              <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#edf3ff]">
-                <BarChartIcon />
-              </div>
-              <h2 className="text-[18px] font-black">Distribución de gravedad</h2>
+            <div className="mt-4 border-t border-[#eef2f9] pt-3">
+              <button
+                onClick={() => setVerSectores((v) => !v)}
+                aria-expanded={verSectores}
+                className="inline-flex items-center gap-1.5 text-[12px] font-black uppercase tracking-[0.08em] text-[#7283a8] transition-colors hover:text-[#002693]"
+              >
+                <ChevronDown
+                  size={14}
+                  aria-hidden="true"
+                  className={`text-[#002693] transition-transform ${verSectores ? 'rotate-180' : ''}`}
+                />
+                Clusters heurísticos
+              </button>
+              <p className="mt-1 text-[11px] leading-relaxed text-[#8aa0c4]">
+                {reporte.prioridades.length} cluster{reporte.prioridades.length === 1 ? '' : 'es'} agrupado
+                {reporte.prioridades.length === 1 ? '' : 's'} por cercanía (~550 m), ordenados por casos y gravedad.
+              </p>
+
+              {verSectores && (
+                <div className="mt-3 space-y-2 rounded-2xl border border-[#e5ebf7] bg-[#f7f9ff] p-3">
+                  <p className="text-[11px] font-black uppercase tracking-[0.08em] text-[#5e6e8d]">
+                    Vista cruda del motor
+                  </p>
+                  {reporte.prioridades.map((p) => (
+                    <div key={`${p.titulo}-${p.sector}-${p.casos}`} className="text-[12px] leading-relaxed text-[#3d4d6e]">
+                      <span className="font-black text-[#0f172a]">{p.titulo}</span>
+                      <span> · {p.sector} · {p.casos} caso{p.casos === 1 ? '' : 's'} · {p.gravedadMax}</span>
+                      <div className="text-[#5d6f92]">{p.breakdown}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
+          </PanelCard>
 
+          <PanelCard className="min-w-0" icon={BarChart3} title="Distribución de gravedad">
             <div className="mt-5 flex h-36 items-end gap-3">
               {severityCounts.map(({ level, count }) => (
                 <div key={level} className="flex flex-1 flex-col items-center justify-end gap-2">
@@ -460,7 +481,7 @@ export default function AnalisisPage() {
                   <div
                     className="w-full rounded-t-xl"
                     style={{
-                      height: `${Math.max(18, (count / Math.max(1, Math.max(...severityCounts.map((x) => x.count)))) * 100)}%`,
+                      height: `${16 + (count / Math.max(1, Math.max(...severityCounts.map((x) => x.count)))) * 88}px`,
                       background: severityPalette[level as keyof typeof severityPalette],
                     }}
                   />
@@ -468,16 +489,9 @@ export default function AnalisisPage() {
                 </div>
               ))}
             </div>
-          </div>
+          </PanelCard>
 
-          <div className="rounded-[22px] border border-[#e2e9f6] bg-white p-4 shadow-sm">
-            <div className="flex items-center gap-2 text-[#1b2b4d]">
-              <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#edf3ff]">
-                <Sparkles size={18} className="text-[#002693]" aria-hidden="true" />
-              </div>
-              <h2 className="text-[18px] font-black">Tendencias y patrones</h2>
-            </div>
-
+          <PanelCard className="min-w-0" icon={Sparkles} title="Tendencias y patrones">
             <div className="mt-4 space-y-4 text-[13px] leading-relaxed text-[#3d4d6e]">
               {lectura.tendenciasYPatrones.slice(0, 3).map((trend, index) => (
                 <div key={`${trend}-${index}`} className="flex gap-3 rounded-2xl bg-[#f5f8ff] p-3">
@@ -508,20 +522,13 @@ export default function AnalisisPage() {
                 </p>
               )}
             </div>
-          </div>
+          </PanelCard>
         </section>
 
         <section className="mt-5 grid gap-4 xl:grid-cols-[1.8fr_0.9fr]">
-          <div className="rounded-[22px] border border-[#e2e9f6] bg-white p-4 shadow-sm">
-            <div className="flex items-center gap-2 text-[#1b2b4d]">
-              <div className="grid h-9 w-9 place-items-center rounded-xl bg-[#edf3ff]">
-                <Cpu size={18} className="text-[#002693]" aria-hidden="true" />
-              </div>
-              <h2 className="text-[18px] font-black">Recomendaciones</h2>
-            </div>
-
-            <div className="mt-4 overflow-hidden rounded-2xl border border-[#e5ebf7]">
-              <table className="min-w-full border-collapse text-left text-[12px]">
+          <PanelCard className="min-w-0" icon={Cpu} title="Recomendaciones">
+            <div className="mt-4 overflow-x-auto rounded-2xl border border-[#e5ebf7]">
+              <table className="w-full min-w-[600px] border-collapse text-left text-[12px]">
                 <thead className="bg-[#f4f7fd] text-[#586d8c]">
                   <tr>
                     <th className="px-3 py-3 font-black uppercase tracking-[0.08em]">Prioridad</th>
@@ -564,9 +571,9 @@ export default function AnalisisPage() {
                 </tbody>
               </table>
             </div>
-          </div>
+          </PanelCard>
 
-          <aside className="rounded-[22px] border border-[#e2e9f6] bg-[#edf5ff] p-4 shadow-sm">
+          <aside className="min-w-0 rounded-[22px] border border-[#e2e9f6] bg-[#edf5ff] p-4 shadow-sm">
             <div className="flex items-center gap-2 text-[#1b2b4d]">
               <div className="grid h-9 w-9 place-items-center rounded-xl bg-white">
                 <AlertTriangle size={18} className="text-[#002693]" aria-hidden="true" />
@@ -578,85 +585,18 @@ export default function AnalisisPage() {
               <p className="text-[13px] leading-relaxed text-[#42557d]">{lectura.enfoqueUrgente}</p>
             </div>
 
-            <button className="mt-5 inline-flex items-center gap-2 rounded-full bg-[#002693] px-4 py-2.5 text-[12px] font-black text-white shadow-sm transition-transform hover:-translate-y-0.5">
+            <button
+              onClick={() => {
+                setVerSectores(true)
+                document.getElementById('sectores')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+              }}
+              className="mt-5 inline-flex items-center gap-2 rounded-full bg-[#002693] px-4 py-2.5 text-[12px] font-black text-white shadow-sm transition-transform hover:-translate-y-0.5"
+            >
               Ver detalle por sector
               <ArrowRight size={14} aria-hidden="true" />
             </button>
           </aside>
         </section>
-
-        <div className="mt-5 overflow-hidden rounded-[22px] border border-[#e2e9f6] bg-white shadow-sm">
-          <button
-            onClick={() => setVerMetodo((v) => !v)}
-            aria-expanded={verMetodo}
-            className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left"
-          >
-            <span className="text-[13px] font-black uppercase tracking-[0.12em] text-[#002693]">Cómo se calculó</span>
-            <ChevronDown
-              size={18}
-              aria-hidden="true"
-              className={`shrink-0 text-[#002693] transition-transform ${verMetodo ? 'rotate-180' : ''}`}
-            />
-          </button>
-          {verMetodo && (
-            <p className="border-t border-[#edf1f8] px-4 py-3 text-[13px] leading-relaxed text-[#4f5e7c]">
-              {reporte.metodologia}
-            </p>
-          )}
-        </div>
-
-        <div className="mt-5 rounded-[22px] border border-[#e2e9f6] bg-[#f7f9ff] p-4 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="inline-flex items-center gap-2 rounded-full bg-[#edf3ff] px-3 py-1.5 text-[11px] font-black uppercase tracking-[0.12em] text-[#002693]">
-              <Sparkles size={13} aria-hidden="true" />
-              Análisis unificado
-            </div>
-            <div className="flex items-center gap-2">
-              <span
-                className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.08em] ${
-                  conIA
-                    ? 'bg-[#e6f6ec] text-[#0b8f4a]'
-                    : 'bg-[#f5f7fb] text-[#5a6987]'
-                }`}
-              >
-                {conIA ? 'IA' : 'Heurístico'}
-              </span>
-              <button
-                onClick={() => void ejecutaIA()}
-                disabled={cargandoIA}
-                className="inline-flex items-center gap-2 rounded-full bg-[#002693] px-3.5 py-2 text-[12px] font-bold text-white shadow-sm transition-transform hover:-translate-y-0.5 disabled:cursor-wait disabled:opacity-60"
-              >
-                <RefreshCw size={13} aria-hidden="true" className={cargandoIA ? 'animate-spin' : ''} />
-                {cargandoIA ? 'Analizando…' : conIA ? 'Actualizar con IA' : 'Generar análisis con IA'}
-              </button>
-            </div>
-          </div>
-
-          {cargandoIA ? (
-            <p className="mt-3 text-[13px] font-semibold text-[#002693]">
-              El modelo redacta la lectura única con los datos reales de la base…
-            </p>
-          ) : falloIA ? (
-            <p className="mt-3 text-[13px] text-[#ef4444]">
-              La lectura con IA no estuvo disponible; se mantiene el análisis heurístico.
-            </p>
-          ) : (
-            <p className="mt-3 text-[13px] text-[#4f5e7c]">
-              La lectura la redacta un modelo de IA en lenguaje natural usando las mismas métricas reales del motor
-              heurístico (abajo, en «Cómo se calculó»). Así el panel muestra un solo análisis unificado, priorizado y
-              con recomendaciones según la base de datos.
-            </p>
-          )}
-        </div>
-      </div>
-    </main>
-  )
-}
-
-function BarChartIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" className="h-5 w-5 text-[#002693]" aria-hidden="true">
-      <path d="M4 18.5V9.5M10 18.5V5.5M16 18.5V11.5M22 18.5V3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
+    </PanelPage>
   )
 }
