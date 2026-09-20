@@ -64,7 +64,7 @@ export type Marker = {
 export const MARKERS: Marker[] = [
   { id: 1, x: 24, y: 30, category: 'agua', barrio: 'El Valle', title: 'Fuga en tubería' },
   { id: 2, x: 40, y: 24, category: 'movilidad', barrio: 'San Sebastián', title: 'Semáforo dañado' },
-  { id: 3, x: 55, y: 38, category: 'seguridad', barrio: 'Sagraí o', title: 'Calle sin alumbrado' },
+  { id: 3, x: 55, y: 38, category: 'seguridad', barrio: 'Sagrario', title: 'Calle sin alumbrado' },
   { id: 4, x: 68, y: 28, category: 'espacio', barrio: 'Punzara', title: 'Parque descuidado' },
   { id: 5, x: 34, y: 52, category: 'agua', barrio: 'Clodoveo', title: 'Corte de agua' },
   { id: 6, x: 50, y: 62, category: 'seguridad', barrio: 'El Pedestal', title: 'Cámara en mal estado' },

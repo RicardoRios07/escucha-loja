@@ -18,9 +18,13 @@ import {
   getClusters,
   getDailySeries,
   getDenuncias,
+  getParroquiaAprox,
   getScoredDenuncias,
   getYaReportadoStats,
+  nombreParroquia,
+  nombreSector,
 } from '../../lib/escucha/store'
+import { PARROQUIAS } from '../../data/parroquias'
 import { categoriaColor, gravedadColor } from '../../lib/escucha/geo'
 import type { MvpDenuncia } from '../../lib/escucha/types'
 
@@ -30,7 +34,7 @@ function norm(s: string) {
   return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
 }
 
-const SECTORES = ['Todos', 'Centro', 'San Sebastián', 'Valle / Zamora', 'Sur / Cuxibamba'] as const
+const PARROQUIA_OPTS = ['Todas', ...PARROQUIAS.map((p) => p.nombre)] as const
 const GRAVEDADES = ['Todas', 'Baja', 'Media', 'Alta', 'Crítica'] as const
 const RANGOS = [
   { id: '7', label: '7d', dias: 7 },
@@ -42,19 +46,19 @@ const RANGOS = [
 type Orden = { clave: 'fecha' | 'score'; dir: 'asc' | 'desc' }
 
 function csvExtendido(
-  rows: { score: number; sector: string; d: Parameters<typeof exportToCSV>[0][number] }[],
+  rows: { score: number; sector: string; parroquia: string; d: Parameters<typeof exportToCSV>[0][number] }[],
 ): string {
   const base = exportToCSV(rows.map((r) => r.d) as Parameters<typeof exportToCSV>[0])
   const lineas = base.split('\n')
-  const head = `${lineas[0]},sector,score`
-  const body = lineas.slice(1).map((l, i) => `${l},"${rows[i]?.sector ?? ''}",${rows[i]?.score ?? 0}`)
+  const head = `${lineas[0]},parroquia,sector,score`
+  const body = lineas.slice(1).map((l, i) => `${l},"${rows[i]?.parroquia ?? ''}","${rows[i]?.sector ?? ''}",${rows[i]?.score ?? 0}`)
   return [head, ...body].join('\n')
 }
 
 /** Tab Resumen: KPIs + filtros + cards por categoría + tabla ordenable + CSV. */
 export default function ResumenPage() {
   const [fCategoria, setFCategoria] = useState('Todas')
-  const [fSector, setFSector] = useState<(typeof SECTORES)[number]>('Todos')
+  const [fParroquia, setFParroquia] = useState<(typeof PARROQUIA_OPTS)[number]>('Todas')
   const [fGravedad, setFGravedad] = useState<(typeof GRAVEDADES)[number]>('Todas')
   const [fRango, setFRango] = useState<(typeof RANGOS)[number]['id']>('todo')
   const [orden, setOrden] = useState<Orden>({ clave: 'score', dir: 'desc' })
@@ -84,20 +88,26 @@ export default function ResumenPage() {
     const conSector = scored.map((d) => ({
       d,
       score: (d as { _score?: number })._score ?? 0,
-      sector: getBarrioAprox(d.lat, d.lng),
+      // Territorio declarado en el wizard o resuelto por punto (catálogo SIL).
+      parroquia: d.parroquiaId ? nombreParroquia(d.parroquiaId) : getParroquiaAprox(d.lat, d.lng),
+      sector: d.barrioId && d.parroquiaId
+        ? nombreSector(d.parroquiaId, d.barrioId)
+        : getBarrioAprox(d.lat, d.lng),
     }))
 
     const dias = RANGOS.find((r) => r.id === fRango)?.dias ?? 0
     const corte = dias > 0 ? Date.now() - dias * 86400000 : 0
     const q = norm(busquedaDeb.trim())
     const filtradas = conSector.filter(
-      ({ d, sector }) =>
+      ({ d, sector, parroquia }) =>
         (fCategoria === 'Todas' || d.categoriaLabel === fCategoria) &&
-        (fSector === 'Todos' || sector === fSector) &&
+        (fParroquia === 'Todas' || parroquia === fParroquia) &&
         (fGravedad === 'Todas' || d.encuesta.gravedad === fGravedad) &&
         (corte === 0 || new Date(d.createdAt).getTime() >= corte) &&
         (q === '' ||
           norm(d.descripcion).includes(q) ||
+          norm(parroquia).includes(q) ||
+          norm(sector).includes(q) ||
           norm(d.encuesta.direccionPrincipal).includes(q) ||
           norm(d.encuesta.calleSecundaria).includes(q) ||
           norm(d.encuesta.referencia).includes(q)),
@@ -124,7 +134,7 @@ export default function ResumenPage() {
     const categorias = ['Todas', ...Object.keys(porCat)]
 
     return { total, criticas, porCat, topCat, wow, ya, categorias, ordenadas, serie }
-  }, [fCategoria, fSector, fGravedad, fRango, orden, busquedaDeb])
+  }, [fCategoria, fParroquia, fGravedad, fRango, orden, busquedaDeb])
 
   const totalPages = Math.max(1, Math.ceil(datos.ordenadas.length / perPage))
   const pagina = datos.ordenadas.slice((page - 1) * perPage, page * perPage)
@@ -200,8 +210,8 @@ export default function ResumenPage() {
             <option key={c}>{c}</option>
           ))}
         </select>
-        <select aria-label="Filtrar por sector" value={fSector} onChange={(e) => { setFSector(e.target.value as typeof fSector); setPage(1) }} className={selCls}>
-          {SECTORES.map((s) => (
+        <select aria-label="Filtrar por parroquia" value={fParroquia} onChange={(e) => { setFParroquia(e.target.value as typeof fParroquia); setPage(1) }} className={selCls}>
+          {PARROQUIA_OPTS.map((s) => (
             <option key={s}>{s}</option>
           ))}
         </select>
@@ -299,7 +309,7 @@ export default function ResumenPage() {
             <thead>
               <tr className="border-b bg-gray-50/70 text-[11px] uppercase tracking-[0.08em] text-[#111]/50">
                 <th className="p-3 font-extrabold">Reporte</th>
-                <th className="p-3 font-extrabold">Sector</th>
+                <th className="p-3 font-extrabold">Parroquia / Sector</th>
                 <th className="p-3 font-extrabold">Gravedad</th>
                 <th className="p-3 font-extrabold" aria-sort={orden.clave === 'score' ? (orden.dir === 'desc' ? 'descending' : 'ascending') : 'none'}>
                   <button onClick={alternarOrden('score')} className="inline-flex min-h-[36px] items-center gap-1 font-extrabold uppercase">
@@ -314,11 +324,11 @@ export default function ResumenPage() {
               </tr>
             </thead>
             <tbody className="divide-y">
-              {pagina.map(({ d, score, sector }) => (
+              {pagina.map(({ d, score, sector, parroquia }) => (
                 <tr key={d.id} className="align-top hover:bg-gray-50/60">
                   <td className="max-w-[280px] p-3">
                     <button
-                      onClick={() => setDetalle({ d, score, sector })}
+                      onClick={() => setDetalle({ d, score, sector: parroquia ? `${parroquia} · ${sector}` : sector })}
                       className="flex w-full items-center gap-2.5 rounded-lg p-1 text-left active:scale-[0.99]"
                       aria-label={`Ver detalle: ${d.categoriaLabel} en ${sector}`}
                     >
@@ -335,7 +345,10 @@ export default function ResumenPage() {
                       </span>
                     </button>
                   </td>
-                  <td className="whitespace-nowrap p-3 font-semibold text-[#111]/70">{sector}</td>
+                  <td className="whitespace-nowrap p-3 font-semibold text-[#111]/70">
+                    {sector}
+                    {parroquia ? <span className="block text-[11px] font-normal text-[#111]/45">{parroquia}</span> : null}
+                  </td>
                   <td className="whitespace-nowrap p-3">
                     <span className="rounded-full px-2 py-0.5 text-[11px] font-black text-white" style={{ background: gravedadColor(d.encuesta.gravedad) }}>
                       {d.encuesta.gravedad}

@@ -1,21 +1,25 @@
 import { useState, useRef, useEffect, lazy, Suspense, type ChangeEvent } from "react"
 import { AnimatePresence, MotionConfig, motion } from "framer-motion"
 import { validarCedulaEcuador, formatearCedula } from "../../lib/escucha/cedula"
-import { addDenuncia } from "../../lib/escucha/store"
-import { getBarrioAprox } from "../../lib/escucha/store"
+import {
+  addDenuncia, resolverUbicacion, nombreParroquia, nombreSector, opcionesSector,
+  SECTOR_RURAL_OTRO,
+} from "../../lib/escucha/store"
+import { PARROQUIAS, CANTON_BOUNDS } from "../../data/parroquias"
 import type { CategoriaId, Gravedad, Frecuencia, TiempoProblema } from "../../lib/escucha/types"
 import {
   MAX_MEDIA_FILES, MAX_VIDEO_SECONDS, deleteMedia, getVideoDuration,
   putMedia, validateMediaFile, type MediaRef,
 } from "../../lib/escucha/media"
-import Logo from "./Logo"
+import PageBanner from "./PageBanner"
 import MediaThumb from "./MediaThumb"
 import VideoRecorder from "./VideoRecorder"
 import { useAuth } from "./AuthContext"
 import {
   RiArrowLeftLine, RiArrowRightLine, RiSendPlaneLine, RiUploadCloudLine, RiCloseLine,
   RiMapPinLine, RiPinDistanceLine, RiCheckboxCircleLine, RiRoadMapLine, RiLeafLine, RiDropLine, RiBuildingLine,
-  RiSearchLine, RiNavigationLine, RiErrorWarningLine, RiCheckboxCircleFill, RiCameraLine, RiVideoLine
+  RiSearchLine, RiNavigationLine, RiErrorWarningLine, RiCheckboxCircleFill, RiCameraLine, RiVideoLine,
+  RiArrowDownSLine, RiEditLine
 } from "react-icons/ri"
 const ComplaintMap = lazy(() => import("./ComplaintMap"))
 
@@ -33,21 +37,17 @@ const categoriaLabelMap: Record<string, string> = {
   "Obstrucción de vías por construcciones, ornato, permisos de construcción": "Control Urbano",
 }
 
-const DRAFT_KEY = "escucha-loja-draft"
+// v2: cambia el orden de pasos; los borradores v1 quedan invalidados a propósito.
+const DRAFT_KEY = "escucha-loja-draft-v2"
 const TOTAL_STEPS = 5
-const STEP_NAMES = ["Categoría", "Ubicación", "Encuesta", "Evidencia", "Revisar"]
+const STEP_NAMES = ["Categoría", "Ubicación", "Evidencia", "Encuesta", "Revisar"]
 const STEP_META = [
   { title: "¿Qué problema quieres reportar?", desc: "Elige la categoría que mejor describe la necesidad." },
-  { title: "¿Dónde ocurre?", desc: "Busca la dirección o marca el punto en el mapa." },
-  { title: "Cuéntanos más", desc: "Tres datos rápidos para priorizar." },
-  { title: "Evidencia y relato", desc: `Añade hasta ${MAX_MEDIA_FILES} fotos o videos de ${MAX_VIDEO_SECONDS}s y describe tu caso.` },
-  { title: "Revisa tu reporte", desc: "Confirma que todo esté bien antes de enviar." },
+  { title: "¿Dónde ocurre?", desc: "Arrastra el mapa, busca la dirección o usa tu ubicación." },
+  { title: "Añade la evidencia", desc: `Hasta ${MAX_MEDIA_FILES} fotos o videos de ${MAX_VIDEO_SECONDS}s y el relato de tu caso.` },
+  { title: "Cuéntanos más", desc: "Tres datos rápidos para priorizar tu reporte." },
+  { title: "Revisa tu reporte", desc: "Confirma los datos y participa con tu cédula." },
 ]
-
-function maskCedula(c: string) {
-  if (c.length < 5) return c
-  return `${c.slice(0, 3)}…${c.slice(-2)}`
-}
 
 export default function EncuestaWizard({ onComplete, onCancel, inline = false }: { onComplete: (id?: string) => void; onCancel: () => void; inline?: boolean }) {
   const { sesion } = useAuth()
@@ -59,6 +59,10 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
     referencia: "",
     location: { lat: -3.9972, lng: -79.2044 },
     ubicacionConfirmada: false,
+    /** ids del catálogo SIL; territorioManual=true si el usuario los eligió a mano. */
+    parroquiaId: "",
+    barrioId: "",
+    territorioManual: false,
     gravedad: "Media" as Gravedad,
     frecuencia: "Semanal" as Frecuencia,
     tiempoProblema: "1-4 semanas" as TiempoProblema,
@@ -84,11 +88,11 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
   const [searchResults, setSearchResults] = useState<any[]>([])
   const [isSearching, setIsSearching] = useState(false)
   const [showConfirmClose, setShowConfirmClose] = useState(false)
+  const [editTerritorio, setEditTerritorio] = useState(false)
+  const [showAddress, setShowAddress] = useState(false)
   const modalRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLElement | null>(null)
   const [progressFeedback, setProgressFeedback] = useState("")
-
-  const progress = (step / TOTAL_STEPS) * 100
 
   // Restaurar borrador
   useEffect(() => {
@@ -108,6 +112,7 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
     }
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // Guardar borrador (solo metadatos: las refs de medios son JSON serializable)
@@ -147,11 +152,6 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
   const handleCategory = (id: CategoriaId) => setFormData(p => ({ ...p, categoryId: id }))
 
   const handleNext = async () => {
-    if (step === 3) {
-      const v = validarCedulaEcuador(formData.cedula)
-      if (!v.valid) { setCedulaError(v.error || "Cédula inválida"); document.getElementById("cedula")?.focus(); return }
-      setCedulaError(null)
-    }
     if (step < TOTAL_STEPS) {
       setStep(s => s + 1)
       setProgressFeedback(`Paso ${step + 1} de ${TOTAL_STEPS}`)
@@ -161,15 +161,23 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
 
   const handleSubmit = async () => {
     setSubmitError(null)
-    const v = validarCedulaEcuador(formData.cedula)
-    if (!v.valid) { setCedulaError(v.error || "Cédula inválida"); setStep(3); setTimeout(() => document.getElementById("cedula")?.focus(), 100); return }
     if (!formData.categoryId) { setSubmitError("Selecciona una categoría"); setStep(1); return }
-    if (!formData.descripcion.trim()) { setSubmitError("Describe lo sucedido"); setStep(4); return }
-    if (formData.media.length === 0) { setSubmitError("Adjunta al menos una evidencia"); setStep(4); return }
+    if (!formData.descripcion.trim()) { setSubmitError("Describe lo sucedido"); setStep(3); return }
+    if (formData.media.length === 0) { setSubmitError("Adjunta al menos una evidencia"); setStep(3); return }
+    const v = validarCedulaEcuador(formData.cedula)
+    if (!v.valid) { setCedulaError(v.error || "Cédula inválida"); setTimeout(() => document.getElementById("cedula")?.focus(), 150); return }
     setIsSubmitting(true)
     setProgressFeedback("Guardando aporte...")
     try {
       const id = `mvp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
+      // Territorio declarado o resuelto por punto (nunca vacío si hay ubicación).
+      let parroquiaId = formData.parroquiaId
+      let barrioId = formData.barrioId
+      if (!parroquiaId) {
+        const r = resolverUbicacion(formData.location.lat, formData.location.lng)
+        parroquiaId = r.parroquia.id
+        barrioId = r.barrio?.id ?? (r.cabecera && r.cabecera.parroquiaId === r.parroquia.id ? r.cabecera.id : SECTOR_RURAL_OTRO)
+      }
       addDenuncia({
         id,
         createdAt: new Date().toISOString(),
@@ -178,6 +186,8 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
         descripcion: formData.descripcion,
         lat: formData.location.lat,
         lng: formData.location.lng,
+        parroquiaId,
+        barrioId,
         evidencia: formData.media,
         encuesta: {
           gravedad: formData.gravedad,
@@ -259,7 +269,7 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
     setIsSearching(true); setSearchResults([])
     try {
       const q = encodeURIComponent(searchQuery + ", Loja, Ecuador")
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}&limit=5&countrycodes=ec&viewbox=-79.3,-3.9,-79.1,-4.1&bounded=1&addressdetails=1`, { headers: { Accept: "application/json" } })
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}&limit=5&countrycodes=ec&viewbox=${CANTON_BOUNDS.w},${CANTON_BOUNDS.n},${CANTON_BOUNDS.e},${CANTON_BOUNDS.s}&bounded=1&addressdetails=1`, { headers: { Accept: "application/json" } })
       const data = await res.json()
       setSearchResults(Array.isArray(data) ? data : [])
       if (data.length === 0) setUploadError("Sin resultados para esa dirección")
@@ -268,17 +278,54 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
 
   const handleSelectResult = (r: any) => {
     const lat = parseFloat(r.lat), lng = parseFloat(r.lon)
-    setFormData(p => ({ ...p, location: { lat, lng }, ubicacionConfirmada: true, direccionPrincipal: r.display_name?.split(",")[0] || p.direccionPrincipal }))
+    setFormData(p => ({ ...p, location: { lat, lng }, ubicacionConfirmada: true, direccionPrincipal: r.display_name?.split(",")[0] || p.direccionPrincipal, ...sugerirTerritorio(p, lat, lng) }))
     setSearchResults([])
     setSearchQuery(r.display_name || "")
   }
 
   const handleUseLocation = () => {
-    if (!navigator.geolocation) { setUploadError("Geolocalización no disponible"); return }
+    if (!navigator.geolocation) { setUploadError("Geolocalización no disponible en este dispositivo"); return }
     navigator.geolocation.getCurrentPosition(
-      pos => setFormData(p => ({ ...p, location: { lat: pos.coords.latitude, lng: pos.coords.longitude }, ubicacionConfirmada: true })),
-      () => setUploadError("No se pudo obtener tu ubicación")
+      pos => {
+        const lat = pos.coords.latitude, lng = pos.coords.longitude
+        setFormData(p => ({ ...p, location: { lat, lng }, ubicacionConfirmada: true, ...sugerirTerritorio(p, lat, lng) }))
+      },
+      // kCLErrorLocationUnknown / timeout / denegado: el mapa con pin
+      // central sigue disponible, así que se guía hacia él.
+      () => setUploadError("Sin señal GPS por ahora. Arrastra el mapa hasta el punto y pulsa Confirmar ubicación.")
     )
+  }
+
+  /**
+   * Autosugerencia parroquia→barrio desde el punto del mapa (catálogo SIL).
+   * No pisa la elección manual del usuario.
+   */
+  const sugerirTerritorio = (
+    p: { parroquiaId: string; barrioId: string; territorioManual: boolean },
+    lat: number, lng: number,
+  ) => {
+    if (p.territorioManual) return {}
+    const r = resolverUbicacion(lat, lng)
+    if (r.barrio) return { parroquiaId: r.parroquia.id, barrioId: r.barrio.id }
+    const cabeceraAqui = r.cabecera && r.cabecera.parroquiaId === r.parroquia.id ? r.cabecera.id : SECTOR_RURAL_OTRO
+    return { parroquiaId: r.parroquia.id, barrioId: cabeceraAqui }
+  }
+
+  const handleConfirmMapPoint = (lat: number, lng: number) => {
+    setFormData(p => ({ ...p, location: { lat, lng }, ubicacionConfirmada: true, ...sugerirTerritorio(p, lat, lng) }))
+  }
+
+  const handleParroquiaChange = (parroquiaId: string) => {
+    const opts = opcionesSector(parroquiaId)
+    setFormData(p => ({
+      ...p, parroquiaId, territorioManual: true,
+      // Si solo hay una opción (cabecera única), se preselecciona.
+      barrioId: opts.length === 1 ? opts[0].value : "",
+    }))
+  }
+
+  const handleBarrioChange = (barrioId: string) => {
+    setFormData(p => ({ ...p, barrioId, territorioManual: true }))
   }
 
   const onDrop = (e: React.DragEvent) => {
@@ -310,43 +357,18 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
         }
         onClick={inline ? undefined : e => e.stopPropagation()}
       >
-        {/* Cabecera editorial */}
-        <header className="relative overflow-hidden bg-[#002693] text-white">
-          <div className="halftone halftone-tiny pointer-events-none absolute inset-0 opacity-[0.16]" aria-hidden="true" />
-          <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-[#0635c4] opacity-70 blur-3xl" aria-hidden="true" />
-          <div className="relative px-4 sm:px-6 pt-4 pb-6">
-            <div className="flex items-center justify-between">
-              <Logo height={30} />
-              <button onClick={handleRequestClose} aria-label="Cerrar formulario" className="grid min-h-[44px] min-w-[44px] place-items-center rounded-xl text-white/80 hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white active:scale-95"><RiCloseLine className="text-xl" aria-hidden="true" /></button>
-            </div>
-            <h2 id="wizard-title" className="sr-only">Formulario de reporte</h2>
-            <p className="mt-4 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-white/90" aria-live="polite">
-              Paso {step} de {TOTAL_STEPS} · {STEP_NAMES[step - 1]}
-            </p>
-            <AnimatePresence mode="wait">
-              <motion.p
-                key={step}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={{ duration: 0.22, ease: 'easeOut' }}
-                className="mt-2 font-display text-[clamp(1.7rem,6vw,2.6rem)] leading-[1.02] tracking-tight"
-              >
-                {STEP_META[step - 1].title}
-              </motion.p>
-            </AnimatePresence>
-            <p className="mt-1.5 text-sm text-white/70">{STEP_META[step - 1].desc}</p>
-            <div className="mt-4 flex gap-1.5" role="progressbar" aria-valuenow={progress} aria-valuemin={0} aria-valuemax={100} aria-valuetext={`Paso ${step} de ${TOTAL_STEPS}`} aria-label="Progreso del reporte">
-              {STEP_NAMES.map((label, i) => (
-                <span
-                  key={label}
-                  aria-hidden="true"
-                  className={`h-1.5 flex-1 rounded-full transition-colors duration-300 ${i < step ? 'bg-[#FE4102]' : 'bg-white/20'}`}
-                />
-              ))}
-            </div>
-          </div>
-        </header>
+        {/* Cabecera editorial (banner compartido con /vecino y /admin) */}
+        <PageBanner
+          titleId="wizard-title"
+          eyebrow={`Paso ${step} de ${TOTAL_STEPS} · ${STEP_NAMES[step - 1]}`}
+          title={STEP_META[step - 1].title}
+          desc={STEP_META[step - 1].desc}
+          titleKey={step}
+          progress={{ current: step, total: TOTAL_STEPS }}
+          actions={
+            <button onClick={handleRequestClose} aria-label="Cerrar formulario" className="grid min-h-[44px] min-w-[44px] place-items-center rounded-xl text-white/80 hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white active:scale-95"><RiCloseLine className="text-xl" aria-hidden="true" /></button>
+          }
+        />
 
         <AnimatePresence mode="wait">
           <motion.div
@@ -403,23 +425,22 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
           )}
 
           {step === 2 && (
-            <div className="p-4 sm:p-6 flex flex-col gap-5">
-
-              <div className="rounded-xl border bg-white p-3 flex flex-col gap-3">
-                <label htmlFor="search-dir" className="text-sm font-medium">Buscar dirección</label>
+            <div className="p-4 sm:p-6 md:grid md:grid-cols-[1.15fr_.85fr] md:items-start md:gap-4 flex flex-col gap-4">
+              {/* Buscador compacto (móvil: debajo del mapa; desktop: panel lateral) */}
+              <div className="order-3 rounded-2xl border bg-white p-3 flex flex-col gap-2.5 md:order-none md:col-start-2 md:row-start-2">
+                <label htmlFor="search-dir" className="text-sm font-bold text-[#002693] flex items-center gap-2"><RiSearchLine aria-hidden="true" /> Buscar dirección</label>
                 <div className="flex gap-2">
                   <input
                     id="search-dir"
                     value={searchQuery}
                     onChange={e => setSearchQuery(e.target.value)}
                     onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); handleSearch() } }}
-                    placeholder="Ej: Av. 8 de Diciembre y Cuxibamba, Loja"
-                    className="flex-1 h-11 rounded-xl border border-gray-300 px-3.5 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none"
+                    placeholder="Ej: Av. 8 de Diciembre, Loja"
+                    className="flex-1 h-11 min-w-0 rounded-xl border border-gray-300 px-3.5 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none"
                     aria-describedby="search-help"
                   />
-                  <button onClick={handleSearch} disabled={isSearching} className="min-h-[44px] px-4 rounded-xl bg-[#002693] text-white font-bold disabled:opacity-50 flex items-center gap-2"><RiSearchLine aria-hidden="true" /> {isSearching ? "..." : "Buscar"}</button>
+                  <button onClick={handleSearch} disabled={isSearching} className="min-h-[44px] px-4 rounded-xl bg-[#002693] text-white font-bold disabled:opacity-50 flex items-center gap-2 shrink-0">{isSearching ? "..." : "Buscar"}</button>
                 </div>
-                <p id="search-help" className="text-xs text-gray-500">Usa Nominatim para geocodificar dentro de Loja. También puedes mover el pin.</p>
                 {searchResults.length > 0 && (
                   <ul className="border rounded-xl divide-y max-h-[180px] overflow-auto">
                     {searchResults.map((r: any) => (
@@ -427,94 +448,100 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
                     ))}
                   </ul>
                 )}
-                <button onClick={handleUseLocation} className="min-h-[44px] inline-flex items-center gap-2 text-sm font-semibold text-[#002693] hover:underline w-fit"><RiNavigationLine aria-hidden="true" /> Usar mi ubicación</button>
-              </div>
-
-              <div className="rounded-xl overflow-hidden border">
-                <Suspense fallback={<div className="h-[320px] md:h-[380px] w-full animate-pulse bg-gray-100" />}>
-                  <ComplaintMap center={[formData.location.lat, formData.location.lng]} selectedPosition={[formData.location.lat, formData.location.lng]} zoom={16} onConfirm={(lat, lng) => setFormData(p => ({ ...p, location: { lat, lng }, ubicacionConfirmada: true }))} onDeselect={() => setFormData(p => ({ ...p, ubicacionConfirmada: false }))} />
-                </Suspense>
-              </div>
-              {formData.ubicacionConfirmada ? (
-                <p className="flex items-center justify-center gap-1.5 rounded-xl border border-[#0db954]/30 bg-[#0db954]/[0.07] px-3 py-2 text-xs font-bold text-[#0b7a3a]" role="status">
-                  <RiMapPinLine aria-hidden="true" /> Punto confirmado · {getBarrioAprox(formData.location.lat, formData.location.lng)} · <span className="tabular-nums">{formData.location.lat.toFixed(5)}, {formData.location.lng.toFixed(5)}</span>
-                </p>
-              ) : (
-                <p className="flex items-center justify-center gap-1.5 rounded-xl border border-[#eab308]/40 bg-[#eab308]/[0.08] px-3 py-2 text-xs font-bold text-[#8a6d00]" role="status">
-                  <RiMapPinLine aria-hidden="true" /> Toca el mapa para ubicar tu caso
-                </p>
-              )}
-
-              <div className="bg-white rounded-xl p-4 sm:p-5 border shadow-sm">
-                <h4 className="font-bold text-[#002693] flex items-center gap-2 mb-3 text-sm"><RiPinDistanceLine aria-hidden="true" /> Detalles de ubicación</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <label htmlFor="dir-principal" className="flex flex-col gap-1.5 text-sm font-medium">Dirección principal<input id="dir-principal" value={formData.direccionPrincipal} onChange={e => setFormData(p => ({ ...p, direccionPrincipal: e.target.value }))} placeholder="Av. Emiliano Ortega" autoComplete="street-address" className="h-11 rounded-xl border border-gray-300 px-3.5 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none" /></label>
-                  <label htmlFor="dir-secundaria" className="flex flex-col gap-1.5 text-sm font-medium">Calle secundaria<input id="dir-secundaria" value={formData.calleSecundaria} onChange={e => setFormData(p => ({ ...p, calleSecundaria: e.target.value }))} placeholder="Juan José Peña" className="h-11 rounded-xl border border-gray-300 px-3.5 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none" /></label>
-                  <label htmlFor="referencia" className="flex flex-col gap-1.5 text-sm font-medium md:col-span-2">Referencia<input id="referencia" value={formData.referencia} onChange={e => setFormData(p => ({ ...p, referencia: e.target.value }))} placeholder="Frente al parque, casa verde..." className="h-11 rounded-xl border border-gray-300 px-3.5 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none" /></label>
+                <div className="flex items-center justify-between gap-2">
+                  <button onClick={handleUseLocation} className="min-h-[36px] inline-flex items-center gap-2 text-sm font-semibold text-[#002693] hover:underline w-fit"><RiNavigationLine aria-hidden="true" /> Usar mi ubicación</button>
+                  <span id="search-help" className="text-[11px] text-gray-400">Dentro del cantón Loja</span>
                 </div>
+                {uploadError && <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2 flex items-center gap-2"><RiErrorWarningLine aria-hidden="true" /> {uploadError}</p>}
               </div>
-              <div className="sticky bottom-0 -mx-4 sm:-mx-6 mt-1 border-t border-black/5 bg-white/90 px-4 sm:px-6 py-3 backdrop-blur">
+
+              {/* Mapa: protagonista, pin central + arrastre + confirmación explícita */}
+              <Suspense fallback={<div className="order-1 h-[300px] md:h-[460px] w-full animate-pulse rounded-2xl bg-gray-100 md:order-none md:col-start-1 md:row-start-1 md:row-span-3" />}>
+                <div className="order-1 md:order-none md:col-start-1 md:row-start-1 md:row-span-3 md:sticky md:top-0">
+                <ComplaintMap
+                  center={[formData.location.lat, formData.location.lng]}
+                  selectedPosition={formData.ubicacionConfirmada ? [formData.location.lat, formData.location.lng] : null}
+                  zoom={16}
+                  onConfirm={handleConfirmMapPoint}
+                  onDeselect={() => setFormData(p => ({ ...p, ubicacionConfirmada: false }))}
+                />
+                </div>
+              </Suspense>
+
+              {/* Territorio: resumen siempre visible + edición bajo demanda */}
+              <div className="order-2 rounded-2xl border bg-white p-3.5 flex flex-col gap-2.5 md:order-none md:col-start-2 md:row-start-1">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="flex min-w-0 items-center gap-2 text-sm">
+                    <RiPinDistanceLine className="shrink-0 text-[#002693]" aria-hidden="true" />
+                    {formData.parroquiaId ? (
+                      <span className="truncate font-bold text-gray-900">
+                        {[nombreParroquia(formData.parroquiaId), nombreSector(formData.parroquiaId, formData.barrioId)].filter(Boolean).join(" · ") || "Ubicación"}
+                      </span>
+                    ) : (
+                      <span className="text-gray-400">Confirma el punto y sugerimos el sector…</span>
+                    )}
+                  </p>
+                  {formData.parroquiaId ? (
+                    <span className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold ${formData.territorioManual ? 'bg-[#002693]/10 text-[#002693]' : 'bg-green-50 text-green-700'}`}>
+                      {formData.territorioManual ? 'elegido' : 'sugerido'}
+                    </span>
+                  ) : null}
+                </div>
+                {(editTerritorio || !formData.parroquiaId) && (
+                  <div className="grid grid-cols-1 gap-2.5">
+                    <label htmlFor="parroquia" className="flex flex-col gap-1 text-[13px] font-medium">Parroquia
+                      <select id="parroquia" value={formData.parroquiaId} onChange={e => handleParroquiaChange(e.target.value)} className="h-11 rounded-xl border border-gray-300 px-3 text-sm bg-white focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none">
+                        <option value="">Elige…</option>
+                        <optgroup label="Urbanas">
+                          {PARROQUIAS.filter(p => p.tipo === 'urbana').map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                        </optgroup>
+                        <optgroup label="Rurales">
+                          {PARROQUIAS.filter(p => p.tipo === 'rural').map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                        </optgroup>
+                      </select>
+                    </label>
+                    <label htmlFor="barrio" className="flex flex-col gap-1 text-[13px] font-medium">{nombreParroquia(formData.parroquiaId) && PARROQUIAS.find(p => p.id === formData.parroquiaId)?.tipo === 'rural' ? 'Sector' : 'Barrio'}
+                      <select id="barrio" value={formData.barrioId} onChange={e => handleBarrioChange(e.target.value)} disabled={!formData.parroquiaId} className="h-11 rounded-xl border border-gray-300 px-3 text-sm bg-white focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none disabled:opacity-50">
+                        <option value="">{formData.parroquiaId ? 'Elige…' : 'Primero la parroquia…'}</option>
+                        {opcionesSector(formData.parroquiaId).map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                )}
+                {formData.parroquiaId && (
+                  <button onClick={() => setEditTerritorio(v => !v)} aria-expanded={editTerritorio} className="inline-flex min-h-[36px] items-center gap-1.5 self-start text-[13px] font-bold text-[#002693] hover:underline">
+                    <RiEditLine aria-hidden="true" /> {editTerritorio ? 'Ocultar' : 'Corregir parroquia / barrio'}
+                  </button>
+                )}
+              </div>
+
+              {/* Dirección exacta (opcional, colapsable) */}
+              <div className="order-4 rounded-2xl border bg-white md:order-none md:col-start-2 md:row-start-3">
+                <button onClick={() => setShowAddress(v => !v)} aria-expanded={showAddress} className="flex min-h-[52px] w-full items-center justify-between gap-2 px-4 text-left">
+                  <span className="text-sm font-bold text-gray-900">
+                    Dirección exacta <span className="font-normal text-gray-400">(opcional)</span>
+                  </span>
+                  <RiArrowDownSLine aria-hidden="true" className={`shrink-0 text-lg text-gray-400 transition-transform ${showAddress ? 'rotate-180' : ''}`} />
+                </button>
+                {showAddress && (
+                  <div className="grid grid-cols-1 gap-3 px-4 pb-4">
+                    <label htmlFor="dir-principal" className="flex flex-col gap-1 text-[13px] font-medium">Dirección principal<input id="dir-principal" value={formData.direccionPrincipal} onChange={e => setFormData(p => ({ ...p, direccionPrincipal: e.target.value }))} placeholder="Av. Emiliano Ortega" autoComplete="street-address" className="h-11 rounded-xl border border-gray-300 px-3.5 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none" /></label>
+                    <label htmlFor="dir-secundaria" className="flex flex-col gap-1 text-[13px] font-medium">Calle secundaria<input id="dir-secundaria" value={formData.calleSecundaria} onChange={e => setFormData(p => ({ ...p, calleSecundaria: e.target.value }))} placeholder="Juan José Peña" className="h-11 rounded-xl border border-gray-300 px-3.5 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none" /></label>
+                    <label htmlFor="referencia" className="flex flex-col gap-1 text-[13px] font-medium">Referencia<input id="referencia" value={formData.referencia} onChange={e => setFormData(p => ({ ...p, referencia: e.target.value }))} placeholder="Frente al parque, casa verde..." className="h-11 rounded-xl border border-gray-300 px-3.5 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none" /></label>
+                  </div>
+                )}
+              </div>
+
+              <div className="order-5 sticky bottom-0 -mx-4 sm:-mx-6 mt-1 border-t border-black/5 bg-white/90 px-4 sm:px-6 py-3 backdrop-blur md:order-none md:col-span-full">
                 <div className="flex gap-3">
                   <button onClick={() => setStep(1)} className="min-h-[52px] flex-1 rounded-2xl border font-bold text-gray-600 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#002693] active:scale-[0.98]"><RiArrowLeftLine aria-hidden="true" /> Anterior</button>
-                  <button onClick={handleNext} disabled={!formData.ubicacionConfirmada} aria-describedby={!formData.ubicacionConfirmada ? "geo-help" : undefined} className="min-h-[52px] flex-[2] rounded-2xl bg-[#FE4102] text-white font-extrabold shadow-[0_14px_28px_-12px_rgba(254,65,2,0.7)] disabled:opacity-40 disabled:shadow-none focus-visible:ring-2 focus-visible:ring-offset-2 flex items-center justify-center gap-2 active:scale-[0.98]">Siguiente <RiArrowRightLine aria-hidden="true" /></button>
+                  <button onClick={handleNext} disabled={!formData.ubicacionConfirmada} aria-describedby={!formData.ubicacionConfirmada ? "map-status" : undefined} className="min-h-[52px] flex-[2] rounded-2xl bg-[#FE4102] text-white font-extrabold shadow-[0_14px_28px_-12px_rgba(254,65,2,0.7)] disabled:opacity-40 disabled:shadow-none focus-visible:ring-2 focus-visible:ring-offset-2 flex items-center justify-center gap-2 active:scale-[0.98]">Siguiente <RiArrowRightLine aria-hidden="true" /></button>
                 </div>
-                {!formData.ubicacionConfirmada && <p id="geo-help" className="pt-2 text-center text-xs font-medium text-[#8a6d00]">Confirma el punto tocando el mapa, buscando una dirección o usando tu ubicación.</p>}
               </div>
             </div>
           )}
 
           {step === 3 && (
-            <div className="p-4 sm:p-6 flex flex-col gap-5">
-              <div className="rounded-xl border bg-white p-4">
-                <h4 className="text-sm font-bold text-[#002693]">Valoración del problema</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
-                  <label htmlFor="gravedad" className="flex flex-col gap-1.5 text-sm font-medium">Gravedad percibida
-                    <select id="gravedad" value={formData.gravedad} onChange={e => setFormData(p => ({ ...p, gravedad: e.target.value as Gravedad }))} className="h-11 rounded-xl border border-gray-300 px-3 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none">
-                      <option>Baja</option><option>Media</option><option>Alta</option><option>Crítica</option>
-                    </select>
-                  </label>
-                  <label htmlFor="frecuencia" className="flex flex-col gap-1.5 text-sm font-medium">Frecuencia
-                    <select id="frecuencia" value={formData.frecuencia} onChange={e => setFormData(p => ({ ...p, frecuencia: e.target.value as Frecuencia }))} className="h-11 rounded-xl border border-gray-300 px-3 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none">
-                      <option>Una vez</option><option>Semanal</option><option>Diario</option><option>Permanente</option>
-                    </select>
-                  </label>
-                  <label htmlFor="tiempo" className="flex flex-col gap-1.5 text-sm font-medium">Tiempo así
-                    <select id="tiempo" value={formData.tiempoProblema} onChange={e => setFormData(p => ({ ...p, tiempoProblema: e.target.value as TiempoProblema }))} className="h-11 rounded-xl border border-gray-300 px-3 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none">
-                      <option>{"< 1 semana"}</option><option>1-4 semanas</option><option>1-6 meses</option><option>{"> 6 meses"}</option>
-                    </select>
-                  </label>
-                </div>
-              </div>
-
-              <fieldset className="rounded-xl border bg-white p-4">
-                <legend className="px-2 text-sm font-bold text-[#002693]">Impacto</legend>
-                <div className="flex flex-col gap-1 mt-1">
-                  <label className="flex items-center gap-2.5 text-sm min-h-[44px] px-2 rounded-xl hover:bg-gray-50 cursor-pointer"><input type="checkbox" className="w-[18px] h-[18px] accent-[#002693]" checked={formData.afectaMovilidad} onChange={e => setFormData(p => ({ ...p, afectaMovilidad: e.target.checked }))} /> Afecta movilidad y tránsito</label>
-                  <label className="flex items-center gap-2.5 text-sm min-h-[44px] px-2 rounded-xl hover:bg-gray-50 cursor-pointer"><input type="checkbox" className="w-[18px] h-[18px] accent-[#002693]" checked={formData.afectaSalud} onChange={e => setFormData(p => ({ ...p, afectaSalud: e.target.checked }))} /> Afecta salud y ambiente</label>
-                  <label className="flex items-center gap-2.5 text-sm min-h-[44px] px-2 rounded-xl hover:bg-gray-50 cursor-pointer"><input type="checkbox" className="w-[18px] h-[18px] accent-[#002693]" checked={formData.yaReportado} onChange={e => setFormData(p => ({ ...p, yaReportado: e.target.checked }))} /> Ya lo reporté antes</label>
-                </div>
-              </fieldset>
-
-              <div className="rounded-xl border bg-[#f8fafc] p-4 sm:p-5 flex flex-col gap-4">
-                <h4 className="font-bold text-[#002693] text-sm">Participa con tu cédula</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <label htmlFor="cedula" className="flex flex-col gap-1.5 text-sm font-medium">Cédula *<input id="cedula" value={formData.cedula} onChange={e => { const v = formatearCedula(e.target.value); setFormData(p => ({ ...p, cedula: v })); if (cedulaError) setCedulaError(null) }} onBlur={() => { if (formData.cedula.length === 10) { const v = validarCedulaEcuador(formData.cedula); if (!v.valid) setCedulaError(v.error || "Cédula inválida"); } }} placeholder="1100234567" inputMode="numeric" autoComplete="off" pattern="[0-9]*" maxLength={10} aria-invalid={!!cedulaError} aria-describedby={cedulaError ? "cedula-error" : undefined} className={`h-11 rounded-xl border px-3.5 outline-none text-sm ${cedulaError ? "border-red-400 bg-red-50" : "border-gray-300 focus:border-[#002693] focus:ring-1 focus:ring-[#002693]"}`} /></label>
-                  <label htmlFor="nombre" className="flex flex-col gap-1.5 text-sm font-medium">Nombre <span className="font-normal text-gray-400">(opcional)</span><input id="nombre" value={formData.nombre} onChange={e => setFormData(p => ({ ...p, nombre: e.target.value }))} placeholder="Tu nombre" autoComplete="name" className="h-11 rounded-xl border border-gray-300 px-3.5 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none" /></label>
-                </div>
-                {cedulaError && <p id="cedula-error" role="alert" className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2 flex items-center gap-2"><RiErrorWarningLine aria-hidden="true" /> {cedulaError}</p>}
-                <p className="text-xs text-gray-500">Usamos la cédula solo para validar participación.</p>
-              </div>
-
-              <div className="sticky bottom-0 -mx-4 sm:-mx-6 mt-1 border-t border-black/5 bg-white/90 px-4 sm:px-6 py-3 backdrop-blur">
-                <div className="flex gap-3">
-                  <button onClick={() => setStep(2)} className="min-h-[52px] flex-1 rounded-2xl border font-bold text-gray-600 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#002693] active:scale-[0.98]"><RiArrowLeftLine aria-hidden="true" /> Anterior</button>
-                  <button onClick={handleNext} className="min-h-[52px] flex-[2] rounded-2xl bg-[#FE4102] text-white font-extrabold shadow-[0_14px_28px_-12px_rgba(254,65,2,0.7)] focus-visible:ring-2 focus-visible:ring-offset-2 flex items-center justify-center gap-2 active:scale-[0.98]">Siguiente <RiArrowRightLine aria-hidden="true" /></button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {step === 4 && (
             <div className="p-4 sm:p-6 flex flex-col gap-5">
               <div className="flex flex-col gap-3">
                 <span className="text-sm font-bold">Evidencia visual * <span className="font-normal text-gray-500">({formData.media.length}/{MAX_MEDIA_FILES})</span></span>
@@ -576,10 +603,51 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
 
               <div className="sticky bottom-0 -mx-4 sm:-mx-6 mt-1 border-t border-black/5 bg-white/90 px-4 sm:px-6 py-3 backdrop-blur">
                 <div className="flex gap-3">
-                  <button onClick={() => setStep(3)} disabled={isSubmitting} aria-busy={isSubmitting} className="min-h-[52px] flex-1 rounded-2xl border font-bold text-gray-600 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#002693] disabled:opacity-40 active:scale-[0.98]"><RiArrowLeftLine aria-hidden="true" /> Anterior</button>
+                  <button onClick={() => setStep(2)} disabled={isSubmitting} aria-busy={isSubmitting} className="min-h-[52px] flex-1 rounded-2xl border font-bold text-gray-600 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#002693] disabled:opacity-40 active:scale-[0.98]"><RiArrowLeftLine aria-hidden="true" /> Anterior</button>
                   <button onClick={handleNext} disabled={isSubmitting || !formData.descripcion.trim() || formData.media.length === 0} aria-busy={isSubmitting} className="min-h-[52px] flex-[2] rounded-2xl bg-[#FE4102] text-white font-extrabold shadow-[0_14px_28px_-12px_rgba(254,65,2,0.7)] disabled:opacity-40 disabled:shadow-none focus-visible:ring-2 focus-visible:ring-offset-2 flex items-center justify-center gap-2 active:scale-[0.98]">
-                    Revisar <RiArrowRightLine aria-hidden="true" />
+                    Siguiente <RiArrowRightLine aria-hidden="true" />
                   </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {step === 4 && (
+            <div className="p-4 sm:p-6 flex flex-col gap-5">
+              <div className="rounded-2xl border bg-white p-4 sm:p-5">
+                <h4 className="text-sm font-bold text-[#002693] mb-3">Valoración del problema</h4>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <label htmlFor="gravedad" className="flex flex-col gap-1.5 text-sm font-medium">Gravedad percibida
+                    <select id="gravedad" value={formData.gravedad} onChange={e => setFormData(p => ({ ...p, gravedad: e.target.value as Gravedad }))} className="h-11 rounded-xl border border-gray-300 px-3 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none">
+                      <option>Baja</option><option>Media</option><option>Alta</option><option>Crítica</option>
+                    </select>
+                  </label>
+                  <label htmlFor="frecuencia" className="flex flex-col gap-1.5 text-sm font-medium">Frecuencia
+                    <select id="frecuencia" value={formData.frecuencia} onChange={e => setFormData(p => ({ ...p, frecuencia: e.target.value as Frecuencia }))} className="h-11 rounded-xl border border-gray-300 px-3 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none">
+                      <option>Una vez</option><option>Semanal</option><option>Diario</option><option>Permanente</option>
+                    </select>
+                  </label>
+                  <label htmlFor="tiempo" className="flex flex-col gap-1.5 text-sm font-medium">Tiempo así
+                    <select id="tiempo" value={formData.tiempoProblema} onChange={e => setFormData(p => ({ ...p, tiempoProblema: e.target.value as TiempoProblema }))} className="h-11 rounded-xl border border-gray-300 px-3 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none">
+                      <option>{"< 1 semana"}</option><option>1-4 semanas</option><option>1-6 meses</option><option>{"> 6 meses"}</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+
+              <fieldset className="rounded-2xl border bg-white p-4 sm:p-5">
+                <legend className="px-2 text-sm font-bold text-[#002693]">Impacto</legend>
+                <div className="flex flex-col gap-1 mt-1">
+                  <label className="flex items-center gap-2.5 text-sm min-h-[44px] px-2 rounded-xl hover:bg-gray-50 cursor-pointer"><input type="checkbox" className="w-[18px] h-[18px] accent-[#002693]" checked={formData.afectaMovilidad} onChange={e => setFormData(p => ({ ...p, afectaMovilidad: e.target.checked }))} /> Afecta movilidad y tránsito</label>
+                  <label className="flex items-center gap-2.5 text-sm min-h-[44px] px-2 rounded-xl hover:bg-gray-50 cursor-pointer"><input type="checkbox" className="w-[18px] h-[18px] accent-[#002693]" checked={formData.afectaSalud} onChange={e => setFormData(p => ({ ...p, afectaSalud: e.target.checked }))} /> Afecta salud y ambiente</label>
+                  <label className="flex items-center gap-2.5 text-sm min-h-[44px] px-2 rounded-xl hover:bg-gray-50 cursor-pointer"><input type="checkbox" className="w-[18px] h-[18px] accent-[#002693]" checked={formData.yaReportado} onChange={e => setFormData(p => ({ ...p, yaReportado: e.target.checked }))} /> Ya lo reporté antes</label>
+                </div>
+              </fieldset>
+
+              <div className="sticky bottom-0 -mx-4 sm:-mx-6 mt-1 border-t border-black/5 bg-white/90 px-4 sm:px-6 py-3 backdrop-blur">
+                <div className="flex gap-3">
+                  <button onClick={() => setStep(3)} className="min-h-[52px] flex-1 rounded-2xl border font-bold text-gray-600 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#002693] active:scale-[0.98]"><RiArrowLeftLine aria-hidden="true" /> Anterior</button>
+                  <button onClick={handleNext} className="min-h-[52px] flex-[2] rounded-2xl bg-[#FE4102] text-white font-extrabold shadow-[0_14px_28px_-12px_rgba(254,65,2,0.7)] focus-visible:ring-2 focus-visible:ring-offset-2 flex items-center justify-center gap-2 active:scale-[0.98]">Revisar <RiArrowRightLine aria-hidden="true" /></button>
                 </div>
               </div>
             </div>
@@ -587,7 +655,7 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
 
           {step === 5 && (
             <div className="p-4 sm:p-6 flex flex-col gap-5">
-              <div className="rounded-xl border bg-[#f8fafc] p-4 flex flex-col gap-3 text-sm">
+              <div className="rounded-2xl border bg-white p-4 sm:p-5 flex flex-col gap-3 text-sm">
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <p className="text-xs font-bold uppercase tracking-wide text-gray-400">Categoría</p>
@@ -601,10 +669,22 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
                     <p className="font-bold text-gray-900 mt-0.5">
                       {[formData.direccionPrincipal, formData.calleSecundaria].filter(Boolean).join(" · ") || "Punto en el mapa"}
                     </p>
+                    {(formData.parroquiaId || formData.barrioId) && (
+                      <p className="text-[#002693] text-xs font-bold mt-0.5">
+                        {[nombreParroquia(formData.parroquiaId), nombreSector(formData.parroquiaId, formData.barrioId)].filter(Boolean).join(" · ")}
+                      </p>
+                    )}
                     {formData.referencia && <p className="text-gray-500 text-xs mt-0.5">{formData.referencia}</p>}
                     <p className="text-gray-400 text-xs mt-0.5 tabular-nums">{formData.location.lat.toFixed(5)}, {formData.location.lng.toFixed(5)}</p>
                   </div>
                   <button onClick={() => setStep(2)} className="min-h-[36px] px-3 rounded-full border bg-white text-xs font-bold text-[#002693] hover:bg-gray-50">Editar</button>
+                </div>
+                <div className="flex items-start justify-between gap-3 border-t border-gray-200 pt-3">
+                  <div>
+                    <p className="text-xs font-bold uppercase tracking-wide text-gray-400">Evidencia ({formData.media.length})</p>
+                    <p className="text-gray-500 text-xs mt-0.5">{formData.descripcion ? "Con relato detallado" : "Sin relato"}</p>
+                  </div>
+                  <button onClick={() => setStep(3)} className="min-h-[36px] px-3 rounded-full border bg-white text-xs font-bold text-[#002693] hover:bg-gray-50">Editar</button>
                 </div>
                 <div className="flex items-start justify-between gap-3 border-t border-gray-200 pt-3">
                   <div>
@@ -616,33 +696,45 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
                     </p>
                     <p className="text-gray-500 text-xs mt-1.5">
                       {[formData.afectaMovilidad && "Afecta movilidad", formData.afectaSalud && "Afecta salud", formData.yaReportado && "Ya reportado antes"].filter(Boolean).join(" · ") || "Sin impacto marcado"}
-                      {" · "}Cédula {maskCedula(formData.cedula)}
                     </p>
                   </div>
-                  <button onClick={() => setStep(3)} className="min-h-[36px] px-3 rounded-full border bg-white text-xs font-bold text-[#002693] hover:bg-gray-50">Editar</button>
+                  <button onClick={() => setStep(4)} className="min-h-[36px] px-3 rounded-full border bg-white text-xs font-bold text-[#002693] hover:bg-gray-50">Editar</button>
                 </div>
               </div>
 
-              <div>
-                <p className="text-xs font-bold uppercase tracking-wide text-gray-400 mb-2">Evidencia ({formData.media.length})</p>
-                <div className="grid grid-cols-3 gap-3">
-                  {formData.media.map((ref, i) => (
-                    <div key={ref.id} className="relative aspect-[4/3] rounded-xl overflow-hidden border bg-gray-100">
-                      <MediaThumb item={ref} alt={`Evidencia ${i + 1}`} className="h-full w-full object-cover" />
-                      {ref.kind === "video" && (
-                        <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/70 px-2 py-0.5 text-[11px] font-black text-white tabular-nums">
-                          {ref.duration ? `${Math.round(ref.duration)}s` : "video"}
-                        </span>
-                      )}
-                    </div>
-                  ))}
+              {/* Galería de evidencia en revisión */}
+              {formData.media.length > 0 && (
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-gray-400 mb-2">Evidencia</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    {formData.media.map((ref, i) => (
+                      <div key={ref.id} className="relative aspect-[4/3] rounded-xl overflow-hidden border bg-gray-100">
+                        <MediaThumb item={ref} alt={`Evidencia ${i + 1}`} className="h-full w-full object-cover" />
+                        {ref.kind === "video" && (
+                          <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/70 px-2 py-0.5 text-[11px] font-black text-white tabular-nums">
+                            {ref.duration ? `${Math.round(ref.duration)}s` : "video"}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-                <button onClick={() => setStep(4)} className="mt-2 min-h-[36px] px-3 rounded-full border bg-white text-xs font-bold text-[#002693] hover:bg-gray-50">Editar evidencia y relato</button>
-              </div>
+              )}
 
-              <div className="rounded-xl border bg-white p-4">
+              <div className="rounded-2xl border bg-white p-4">
                 <p className="text-xs font-bold uppercase tracking-wide text-gray-400">Relato</p>
                 <p className="text-sm text-gray-800 mt-1 leading-relaxed">{formData.descripcion}</p>
+              </div>
+
+              {/* Participa con tu cédula (migrado del paso Encuesta al cierre) */}
+              <div className="rounded-2xl border bg-white p-4 sm:p-5 flex flex-col gap-4">
+                <h4 className="font-bold text-[#002693] text-sm">Participa con tu cédula</h4>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <label htmlFor="cedula" className="flex flex-col gap-1.5 text-sm font-medium">Cédula *<input id="cedula" value={formData.cedula} onChange={e => { const v = formatearCedula(e.target.value); setFormData(p => ({ ...p, cedula: v })); if (cedulaError) setCedulaError(null) }} onBlur={() => { if (formData.cedula.length === 10) { const v = validarCedulaEcuador(formData.cedula); if (!v.valid) setCedulaError(v.error || "Cédula inválida"); } }} placeholder="1100234567" inputMode="numeric" autoComplete="off" pattern="[0-9]*" maxLength={10} aria-invalid={!!cedulaError} aria-describedby={cedulaError ? "cedula-error" : undefined} className={`h-11 rounded-xl border px-3.5 outline-none text-sm ${cedulaError ? "border-red-400 bg-red-50" : "border-gray-300 focus:border-[#002693] focus:ring-1 focus:ring-[#002693]"}`} /></label>
+                  <label htmlFor="nombre" className="flex flex-col gap-1.5 text-sm font-medium">Nombre <span className="font-normal text-gray-400">(opcional)</span><input id="nombre" value={formData.nombre} onChange={e => setFormData(p => ({ ...p, nombre: e.target.value }))} placeholder="Tu nombre" autoComplete="name" className="h-11 rounded-xl border border-gray-300 px-3.5 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none" /></label>
+                </div>
+                {cedulaError && <p id="cedula-error" role="alert" className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2 flex items-center gap-2"><RiErrorWarningLine aria-hidden="true" /> {cedulaError}</p>}
+                <p className="text-xs text-gray-500">Usamos la cédula solo para validar participación y vincular tus reportes.</p>
               </div>
 
               {submitError && <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2 flex items-center gap-2"><RiErrorWarningLine aria-hidden="true" /> {submitError}</p>}

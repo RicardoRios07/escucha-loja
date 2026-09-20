@@ -133,7 +133,7 @@ const METODOLOGIA =
   'Priorización heurística y auditable (sin caja negra): cada aporte recibe un score 0–100 ' +
   '(40% densidad del cluster, 25% gravedad, 15% cronicidad, 10% impacto en salud/movilidad, +8 si ya fue reportado). ' +
   'Los sectores se agrupan por cercanía (~550 m) y se ordenan por casos y gravedad máxima. ' +
-  'Las proyecciones sobre el mapa 3D son aproximadas por diseño. Esta interfaz (AnalysisProvider) ' +
+  'Las proyecciones sobre el mapa son aproximadas por diseño. Esta interfaz (AnalysisProvider) ' +
   'permite conectar un modelo de IA real cuando haya backend sin cambiar la presentación.'
 
 export const HeuristicProvider: AnalysisProvider = {

@@ -1,6 +1,6 @@
-import { ArrowRight, Map, MapPin, Megaphone, Shield, TreePine, Truck, Droplets } from 'lucide-react'
+import { ArrowRight, Map, Megaphone, Shield, TreePine, Truck, Droplets } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { CATEGORIES, IMG, type CategoryKey } from '../data/content'
 import Logo from '../components/escucha/Logo'
 import LojaMap3D, { type LojaReport } from '../components/escucha/LojaMap3D'
@@ -28,15 +28,14 @@ const VOCES = [
 ]
 
 const FAQS = [
-  { q: '¿Qué es Escucha Loja?', a: 'Es un canal directo entre los vecinos y el candidato a la alcaldía: reportas lo que pasa en tu barrio con foto o video, ubicación y un relato breve, y tu aporte suma al mapa y a la priorización de la ciudad.' },
+  { q: '¿Qué es Escucha Loja?', a: 'Es un canal directo con la ciudad: reportas lo que pasa en tu barrio con foto o video, ubicación y un relato breve, y nosotros lo escuchamos. Tu aporte suma al mapa y a la priorización de la ciudad.' },
   { q: '¿Mi reporte es anónimo?', a: 'Pedimos tu cédula solo para validar que eres una persona real. Tu nombre y tu cédula nunca se publican: en el mapa y los resúmenes solo aparecen el problema, el sector y la evidencia.' },
-  { q: '¿Qué pasa con mi aporte después de enviarlo?', a: 'Aparece en el mapa de calor, alimenta las estadísticas por categoría y sector, y entra al análisis de priorización que revisa el candidato.' },
+  { q: '¿Qué pasa con mi aporte después de enviarlo?', a: 'Aparece en el mapa de calor, alimenta las estadísticas por categoría y sector, y entra al análisis de priorización que revisamos cada semana para definir qué atender primero.' },
   { q: '¿Cuánto tiempo toma participar?', a: 'Tres pasos y menos de 2 minutos: eliges la categoría, ubicas el punto en el mapa y agregas evidencia con tu relato.' },
   { q: '¿Necesito instalar alguna aplicación?', a: 'No. Todo funciona en el navegador de tu celular: puedes tomar fotos o grabar video en el momento, sin descargas.' },
 ]
 
 export default function HomePage() {
-  const navigate = useNavigate()
   const [vivos, setVivos] = useState<MvpDenuncia[]>(() => {
     try { ensureSeed(); return getDenuncias() } catch { return [] }
   })
@@ -91,15 +90,12 @@ export default function HomePage() {
 
       <section className="campaign-middle">
         <div id="mapa" className="campaign-map-panel">
-          <div className="campaign-panel-label"><MapPin size={19} /> Loja en el mapa</div>
           <div className="campaign-count"><span /> {vivos.length} aportes registrados</div>
           <div className="campaign-map-image">
             <img src={IMG.map} alt="Mapa de Loja" className="campaign-map-skeleton" loading="lazy" decoding="async" aria-hidden="true" />
             <LojaMap3D
               reports={reports}
               mode="lite"
-              showReportButton
-              onReportLocation={() => navigate('/ingresar')}
             />
           </div>
         </div>

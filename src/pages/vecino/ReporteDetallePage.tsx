@@ -6,6 +6,7 @@ import { useAuth } from '../../components/escucha/AuthContext'
 import { deleteDenuncia, getBarrioAprox, getDenuncias } from '../../lib/escucha/store'
 import { deleteMedia, isMediaRef } from '../../lib/escucha/media'
 import { categoriaColor, gravedadColor } from '../../lib/escucha/geo'
+import PageBanner from '../../components/escucha/PageBanner'
 
 function maskCedula(c: string) {
   if (!c || c.length < 5) return '••••'
@@ -36,14 +37,27 @@ export default function ReporteDetallePage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-md px-5 pt-6">
-      <button
-        onClick={() => navigate(-1)}
-        className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full px-3 text-sm font-bold text-[#002693] active:scale-[0.98]"
-      >
-        <ArrowLeft size={16} aria-hidden="true" /> Atrás
-      </button>
+    <main className="mx-auto w-full max-w-md px-5 pt-5 lg:max-w-3xl lg:px-8">
+      {/* Banner compacto con volver integrado */}
+      <PageBanner
+        variant="compact"
+        className="rounded-2xl"
+        hideLogoDesktop
+        eyebrow="Detalle de reporte"
+        title={d.categoriaLabel}
+        desc={`${getBarrioAprox(d.lat, d.lng)} · ${new Date(d.createdAt).toLocaleDateString()}`}
+        leading={
+          <button
+            onClick={() => navigate(-1)}
+            aria-label="Volver"
+            className="grid h-10 w-10 place-items-center rounded-xl bg-white/10 text-white hover:bg-white/20 active:scale-95"
+          >
+            <ArrowLeft size={18} aria-hidden="true" />
+          </button>
+        }
+      />
 
+      <div className="pt-4">
       {d.evidencia.length > 0 ? (
         <div className={`mt-3 grid gap-2 ${d.evidencia.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
           {d.evidencia.map((item, i) => (
@@ -171,6 +185,7 @@ export default function ReporteDetallePage() {
             <Trash2 size={16} aria-hidden="true" /> Eliminar
           </button>
         )}
+      </div>
       </div>
     </main>
   )

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { Map, MapControls, useMap, describeGeolocationError } from "../ui/map"
 import { Card } from "../ui/card"
+import { CANTON_BOUNDS_LL } from "../../data/parroquias"
 import { RiMapPinLine, RiCrosshairLine, RiAlertLine, RiCheckLine } from "react-icons/ri"
 
 interface ComplaintMapProps {
@@ -15,10 +16,8 @@ interface ComplaintMapProps {
   onDeselect: () => void
 }
 
-const LOJA_BOUNDS: [[number, number], [number, number]] = [
-  [-79.29, -4.08],
-  [-79.12, -3.91],
-]
+/** Cobertura cantonal (ciudad + 13 parroquias rurales). */
+const LOJA_BOUNDS: [[number, number], [number, number]] = CANTON_BOUNDS_LL
 
 function isInsideLoja(lng: number, lat: number): boolean {
   return lng >= LOJA_BOUNDS[0][0] && lng <= LOJA_BOUNDS[1][0] && lat >= LOJA_BOUNDS[0][1] && lat <= LOJA_BOUNDS[1][1]
@@ -172,7 +171,7 @@ export default function ComplaintMap({ center, zoom = 16, selectedPosition = nul
 
   return (
     <Card className="overflow-hidden p-0 rounded-2xl border border-gray-200 shadow-sm">
-      <div className="relative h-[320px] md:h-[380px] w-full">
+      <div className="relative h-[300px] md:h-[460px] w-full">
         <Map center={mapCenter} zoom={zoom} maxBounds={LOJA_BOUNDS} className="h-full w-full">
           <MapSync
             selectedPosition={selectedPosition}
@@ -213,6 +212,7 @@ export default function ComplaintMap({ center, zoom = 16, selectedPosition = nul
 
           {/* Estado: hint de arrastre / confirmado / error de GPS */}
           <div
+            id="map-status"
             role={locateError ? "alert" : "status"}
             className={`pointer-events-none absolute left-3 top-3 z-10 flex max-w-[calc(100%-5.5rem)] items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold shadow-md backdrop-blur ${
               locateError
@@ -234,9 +234,9 @@ export default function ComplaintMap({ center, zoom = 16, selectedPosition = nul
             </span>
           </div>
 
-          {/* Coords pill (secundario) */}
+          {/* Coords pill (secundaria; oculta en móvil: colisiona con el botón confirmar) */}
           {centerState && !confirmado && (
-            <div className="pointer-events-none absolute bottom-3 left-3 rounded-lg bg-[#002693]/85 px-2.5 py-1 text-[10px] font-mono font-semibold text-white shadow-md">
+            <div className="pointer-events-none absolute bottom-3 left-3 hidden rounded-lg bg-[#002693]/85 px-2.5 py-1 text-[10px] font-mono font-semibold text-white shadow-md sm:block">
               {centerState.lat.toFixed(5)}, {centerState.lng.toFixed(5)}
             </div>
           )}

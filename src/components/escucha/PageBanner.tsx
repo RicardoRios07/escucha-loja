@@ -19,6 +19,10 @@ type PageBannerProps = {
   titleKey?: string | number
   /** Id para el h1 (aria-labelledby de diálogos). */
   titleId?: string
+  /** Sin logo nunca (ej: pantalla de éxito del wizard). */
+  logo?: boolean
+  /** Oculta el logo en desktop (lg+) — /vecino ya lo muestra en la sidebar. */
+  hideLogoDesktop?: boolean
   className?: string
 }
 
@@ -36,24 +40,26 @@ export default function PageBanner({
   progress,
   titleKey,
   titleId,
+  logo = true,
+  hideLogoDesktop = false,
   className = '',
 }: PageBannerProps) {
   const full = variant === 'full'
+  const logoEl = logo ? <Logo height={full ? 30 : 26} /> : null
   return (
     <section className={`relative overflow-hidden bg-[#002693] text-white ${className}`}>
       <div className="halftone halftone-tiny pointer-events-none absolute inset-0 opacity-[0.16]" aria-hidden="true" />
       <div className="pointer-events-none absolute -right-20 -top-24 h-64 w-64 rounded-full bg-[#0635c4] opacity-70 blur-3xl" aria-hidden="true" />
       <div className={`relative px-4 sm:px-6 ${full ? 'pt-4 pb-6' : 'py-4'}`}>
-        {(actions || leading) && (
+        {(actions || leading || logo) && (
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-2">
               {leading}
-              {!leading && <Logo height={full ? 30 : 26} />}
+              {!leading && <span className={hideLogoDesktop ? 'lg:hidden' : undefined}>{logoEl}</span>}
             </div>
             {actions}
           </div>
         )}
-        {!(actions || leading) && <Logo height={full ? 30 : 26} />}
         {eyebrow && (
           <p className="mt-3 inline-flex items-center gap-2 rounded-full bg-white/10 px-3 py-1 text-[11px] font-extrabold uppercase tracking-[0.18em] text-white/90">
             {eyebrow}

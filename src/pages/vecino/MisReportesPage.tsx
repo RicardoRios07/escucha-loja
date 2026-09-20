@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { ClipboardList, Plus } from 'lucide-react'
+import PageBanner from '../../components/escucha/PageBanner'
 import MediaThumb from '../../components/escucha/MediaThumb'
 import { useAuth } from '../../components/escucha/AuthContext'
 import { getBarrioAprox, getDenuncias } from '../../lib/escucha/store'
@@ -37,11 +38,15 @@ export default function MisReportesPage() {
   }, [sesion?.cedula, filtro, tick])
 
   return (
-    <main className="mx-auto w-full max-w-md px-5 pt-6">
-      <h1 className="text-xl font-black tracking-tight text-[#111]">Mis reportes</h1>
-      <p className="mt-1 text-[13px] text-[#111]/55">
-        {sesion?.cedula ? `Vinculados a tu cédula · ${mias.length}` : 'Agrega tu cédula para verlos aquí'}
-      </p>
+    <main className="mx-auto w-full max-w-md px-5 pt-5 lg:max-w-5xl lg:px-8">
+      <PageBanner
+        variant="compact"
+        className="rounded-2xl"
+        hideLogoDesktop
+        eyebrow="Escucha Loja"
+        title="Mis reportes"
+        desc={sesion?.cedula ? `Vinculados a tu cédula · ${mias.length}` : 'Agrega tu cédula para verlos aquí'}
+      />
 
       {!sesion?.cedula ? (
         <div className="mt-4 rounded-2xl border bg-white p-6 text-center">
@@ -60,7 +65,7 @@ export default function MisReportesPage() {
           </Link>
         </div>
       ) : (
-        <>
+        <div className="pb-6">
           {categorias.length > 2 && (
             <div className="mt-4 flex gap-2 overflow-x-auto pb-1" role="group" aria-label="Filtrar por categoría">
               {categorias.map((c) => (
@@ -92,12 +97,12 @@ export default function MisReportesPage() {
               </Link>
             </div>
           ) : (
-            <ul className="mt-4 flex flex-col gap-3">
+            <ul className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
               {mias.map((d) => (
                 <li key={d.id}>
                   <Link
                     to={`/vecino/reporte/${d.id}`}
-                    className="flex gap-3 rounded-2xl border bg-white p-3 transition-transform active:scale-[0.99]"
+                    className="flex gap-3 rounded-2xl border bg-white p-3 transition-transform active:scale-[0.99] lg:hover:shadow-md"
                   >
                     <span className="block h-20 w-20 shrink-0 overflow-hidden rounded-xl bg-gray-100">
                       {d.evidencia[0] ? (
@@ -133,7 +138,7 @@ export default function MisReportesPage() {
               ))}
             </ul>
           )}
-        </>
+        </div>
       )}
     </main>
   )
