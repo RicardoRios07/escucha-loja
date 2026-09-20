@@ -12,8 +12,13 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "data:buildings": "node scripts/build-buildings.mjs",
+    "data:overture-canton": "uvx overturemaps download --bbox=-79.60,-4.56,-79.05,-3.62 -f geojson --type=building -o scripts/.cache/loja-buildings-canton.geojson",
+    "data:buildings-canton": "node scripts/build-buildings.mjs scripts/.cache/loja-buildings-canton.geojson --con-cabeceras",
     "data:tiles": "./scripts/build-tiles.sh",
     "data:verify": "node scripts/verify-pmtiles.mjs",
+    "data:parroquias": "node scripts/build-parroquias.mjs",
+    "data:territorio": "./scripts/build-territorio.sh",
+    "data:verify-territorio": "node scripts/verify-territorio.mjs",
     "data:all": "npm run data:buildings && npm run data:tiles"
   },
   "dependencies": {

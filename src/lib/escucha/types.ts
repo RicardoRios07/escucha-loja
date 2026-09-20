@@ -30,6 +30,9 @@ export interface MvpDenuncia {
   descripcion: string
   lat: number
   lng: number
+  /** Parroquia/barrio declarados en el wizard (catálogo SIL). Opcionales: se resuelven por punto si faltan. */
+  parroquiaId?: string
+  barrioId?: string
   /** Adjuntos: dataURL heredado (string) o referencia a IndexedDB (MediaRef). */
   evidencia: MediaItem[]
   encuesta: EncuestaRespuestas

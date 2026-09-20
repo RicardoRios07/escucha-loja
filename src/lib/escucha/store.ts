@@ -1,4 +1,8 @@
 import type { MvpDenuncia, CategoriaId, Gravedad, Cluster } from "./types"
+import { PARROQUIAS, PARROQUIA_POR_ID, CANTON_BOUNDS } from "../../data/parroquias"
+import type { Parroquia } from "../../data/parroquias"
+import { BARRIOS, BARRIOS_POR_PARROQUIA, CABECERAS } from "../../data/barrios"
+import type { Barrio, Cabecera } from "../../data/barrios"
 
 const KEY_DENUNCIAS = "mvp_denuncias_loja"
 const KEY_USER = "mvp_user_loja"
@@ -264,12 +268,173 @@ export function getCrossTabCategoriaGravedad(denuncias: MvpDenuncia[]) {
   return { cats, gravs, matrix }
 }
 
+export interface UbicacionResuelta {
+  parroquia: Parroquia
+  /** Barrio urbano cuando el punto cae en la mancha urbana; null en rural. */
+  barrio: Barrio | null
+  /** Cabecera cantonal/parroquial más cercana (referencia en rural). */
+  cabecera: Cabecera | null
+  /** Etiqueta corta para mostrar: barrio, cabecera o parroquia. */
+  etiqueta: string
+}
+
+type Bbox = { w: number; s: number; e: number; n: number }
+
+function enBbox(lat: number, lng: number, b: Bbox): boolean {
+  return lng >= b.w && lng <= b.e && lat >= b.s && lat <= b.n
+}
+
+function areaBbox(b: Bbox): number {
+  return Math.max(0, b.e - b.w) * Math.max(0, b.n - b.s)
+}
+
+/** Distancia aprox en grados (suficiente para comparar cercanía). */
+function distGrados(lat: number, lng: number, centro: [number, number]): number {
+  const dLat = lat - centro[0]
+  const dLng = (lng - centro[1]) * Math.cos((lat * Math.PI) / 180)
+  return Math.sqrt(dLat * dLat + dLng * dLng)
+}
+
+/** Ray-casting sobre anillos [lng,lat]. */
+function enPoligono(lng: number, lat: number, anillos: [number, number][][]): boolean {
+  let dentro = false
+  for (const anillo of anillos) {
+    let j = anillo.length - 1
+    for (let i = 0; i < anillo.length; i++) {
+      const [xi, yi] = anillo[i]
+      const [xj, yj] = anillo[j]
+      if (yi > lat !== yj > lat && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) {
+        dentro = !dentro
+      }
+      j = i
+    }
+  }
+  return dentro
+}
+
+function cabeceraMasCercana(lat: number, lng: number): Cabecera | null {
+  let best: Cabecera | null = null
+  let bestD = Infinity
+  for (const c of CABECERAS) {
+    const d = distGrados(lat, lng, c.centro)
+    if (d < bestD) { bestD = d; best = c }
+  }
+  return best
+}
+
+/**
+ * Resuelve un punto contra el catálogo oficial SIL (polígonos aproximados por
+ * bbox + centroide; los polígonos exactos viven en el PMTiles del mapa).
+ * - Dentro de un bbox de barrio → ese barrio y su parroquia urbana.
+ * - Dentro de un bbox de parroquia rural → la parroquia + cabecera más cercana.
+ * - Fuera de todo bbox → la parroquia (urbana o rural) con centroide más cercano.
+ */
+export function resolverUbicacion(lat: number, lng: number): UbicacionResuelta {
+  // 1) Barrio urbano por contención (desempata por bbox más pequeña).
+  let barrio: Barrio | null = null
+  let barrioArea = Infinity
+  for (const b of BARRIOS) {
+    if (!enBbox(lat, lng, b.bbox)) continue
+    const a = areaBbox(b.bbox)
+    if (a < barrioArea) { barrioArea = a; barrio = b }
+  }
+  if (barrio) {
+    const parroquia = PARROQUIA_POR_ID[barrio.parroquiaId] ?? PARROQUIAS[0]
+    return { parroquia, barrio, cabecera: cabeceraMasCercana(lat, lng), etiqueta: barrio.nombre }
+  }
+
+  // 2) Parroquia rural por point-in-polygon exacto sobre el contorno SIL
+  // simplificado (los bboxes rurales se solapan; el bbox solo pre-filtra).
+  let rural: Parroquia | null = null
+  for (const p of PARROQUIAS) {
+    if (p.tipo !== 'rural' || !p.contorno || !enBbox(lat, lng, p.bbox)) continue
+    if (!enPoligono(lng, lat, p.contorno)) continue
+    rural = p
+    break
+  }
+  if (rural) {
+    const cab = CABECERAS.find((c) => c.parroquiaId === rural.id)
+      ?? cabeceraMasCercana(lat, lng)
+    return { parroquia: rural, barrio: null, cabecera: cab, etiqueta: cab && cab.parroquiaId === rural.id ? cab.nombre : rural.nombre }
+  }
+
+  // 3) Fallback: centroide más cercano (puntos fuera de bboxes o en bordes).
+  let parroquia: Parroquia = PARROQUIAS[0]
+  let bestD = Infinity
+  for (const p of PARROQUIAS) {
+    const d = distGrados(lat, lng, p.centro)
+    if (d < bestD) { bestD = d; parroquia = p }
+  }
+  if (parroquia.tipo === 'urbana') {
+    let bBest: Barrio | null = null
+    let bD = Infinity
+    for (const b of BARRIOS_POR_PARROQUIA[parroquia.id] ?? []) {
+      const d = distGrados(lat, lng, b.centro)
+      if (d < bD) { bD = d; bBest = b }
+    }
+    return {
+      parroquia, barrio: bBest, cabecera: cabeceraMasCercana(lat, lng),
+      etiqueta: bBest?.nombre ?? parroquia.nombre,
+    }
+  }
+  const cab = CABECERAS.find((c) => c.parroquiaId === parroquia.id)
+    ?? cabeceraMasCercana(lat, lng)
+  return { parroquia, barrio: null, cabecera: cab, etiqueta: parroquia.nombre }
+}
+
+/** ¿El punto está dentro del cantón Loja (cobertura urbana + rural)? */
+export function isInsideCanton(lat: number, lng: number): boolean {
+  return (
+    lng >= CANTON_BOUNDS.w && lng <= CANTON_BOUNDS.e &&
+    lat >= CANTON_BOUNDS.s && lat <= CANTON_BOUNDS.n
+  )
+}
+
+/** Nombre de la parroquia oficial (urbana o rural) más probable para el punto. */
+export function getParroquiaAprox(lat: number, lng: number): string {
+  return resolverUbicacion(lat, lng).parroquia.nombre
+}
+
 export function getBarrioAprox(lat: number, lng: number) {
-  // heurística simple: aproximar sector por cuadrante para tesis sin reverse geocode
-  if (lat > -3.995 && lng > -79.20) return "Centro"
-  if (lat > -3.995 && lng <= -79.20) return "San Sebastián"
-  if (lat <= -3.995 && lng > -79.20) return "Valle / Zamora"
-  return "Sur / Cuxibamba"
+  return resolverUbicacion(lat, lng).etiqueta
+}
+
+/** Valor especial de barrioId para "otro sector" en parroquias rurales. */
+export const SECTOR_RURAL_OTRO = "rural-otro"
+
+/** Nombre de parroquia por id de catálogo ("" si no existe). */
+export function nombreParroquia(parroquiaId: string): string {
+  return PARROQUIA_POR_ID[parroquiaId]?.nombre ?? ""
+}
+
+/**
+ * Nombre del segundo nivel (barrio urbano, cabecera rural u "otro sector")
+ * para mostrar. Recibe los ids guardados en la denuncia.
+ */
+export function nombreSector(parroquiaId: string, barrioId: string): string {
+  if (!barrioId) return ""
+  if (barrioId === SECTOR_RURAL_OTRO) {
+    const p = PARROQUIA_POR_ID[parroquiaId]
+    return p ? `Otro sector de ${p.nombre}` : "Otro sector"
+  }
+  const b = BARRIOS.find((x) => x.id === barrioId)
+  if (b) return b.nombre
+  const c = CABECERAS.find((x) => x.id === barrioId)
+  if (c) return c.nombre
+  return ""
+}
+
+/** Opciones del segundo nivel según parroquia: barrios o cabecera+otro. */
+export function opcionesSector(parroquiaId: string): { value: string; label: string }[] {
+  const p = PARROQUIA_POR_ID[parroquiaId]
+  if (!p) return []
+  if (p.tipo === 'urbana') {
+    return (BARRIOS_POR_PARROQUIA[parroquiaId] ?? []).map((b) => ({ value: b.id, label: b.nombre }))
+  }
+  const cab = CABECERAS.find((c) => c.parroquiaId === parroquiaId)
+  const opts = cab ? [{ value: cab.id, label: cab.nombre }] : []
+  opts.push({ value: SECTOR_RURAL_OTRO, label: `Otro sector de ${p.nombre}` })
+  return opts
 }
 
 export function getYaReportadoStats(denuncias: MvpDenuncia[]) {

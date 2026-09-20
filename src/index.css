@@ -477,6 +477,9 @@
 .loja-map-toggle { padding: 8px 14px; border: 2px solid #002693; border-radius: 100px; background: #ffffff; color: #002693; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: 2px 3px 0 rgba(0, 38, 147, 0.14); }
 .loja-map-toggle[aria-pressed="true"] { border-color: #FE4102; color: #FE4102; }
 .loja-map-toggle:disabled { opacity: 0.55; cursor: wait; }
+.loja-map-dim { display: inline-flex; overflow: hidden; border: 2px solid #002693; border-radius: 100px; background: #ffffff; box-shadow: 2px 3px 0 rgba(0, 38, 147, 0.14); }
+.loja-map-dim .loja-map-toggle { border: none; box-shadow: none; border-radius: 0; }
+.loja-map-dim .loja-map-toggle[aria-pressed="true"] { background: #FE4102; color: #ffffff; }
 
 /* Barra de gradiente compartida (leyenda + panel de filtros) */
 .loja-map-legend-head { font-size: 11px; font-weight: 800; color: #002693; }

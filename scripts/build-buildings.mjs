@@ -16,7 +16,12 @@
  *   - huellas ML que NO duplican geométricamente una huella OSM
  *   - props mínimas: h (altura m), cx/cy (centroide p/ muestreo de techo), ml:1, i (índice)
  *
- * Uso: node scripts/build-buildings.mjs [rutaOverture.geojson]
+ * Uso: node scripts/build-buildings.mjs [rutaOverture.geojson] [--con-cabeceras]
+ *
+ *   Sin flags: solo la caja urbana de campaña (BBOX).
+ *   --con-cabeceras: además incluye un buffer (~900 m) alrededor de cada
+ *   cabecera parroquial rural (Fase C; requiere scripts/.cache/sil/cabeceras.geojson
+ *   y una descarga Overture de bbox cantonal).
  */
 
 import fs from 'node:fs'
@@ -26,7 +31,12 @@ import os from 'node:os'
 const BBOX = { w: -79.29, s: -4.08, e: -79.12, n: -3.91 } // caja de la campaña = maxBounds del mapa
 const OUT = path.resolve('scripts/.cache/loja-buildings.full.geojson')
 
-const overturePath = process.argv[2] || path.join(os.homedir(), 'Downloads/loja-buildings.geojson')
+const args = process.argv.slice(2)
+const overturePath = (!args[0] || args[0].startsWith('--') ? null : args[0])
+  || path.join(os.homedir(), 'Downloads/loja-buildings.geojson')
+const CON_CABECERAS = args.includes('--con-cabeceras')
+/** Buffer en grados alrededor de cada cabecera rural (~900 m). */
+const BUFFER_CABECERA = 0.008
 
 // ---------- utilidades geográficas ----------
 
@@ -81,6 +91,48 @@ function estimateHeight({ height, floors, area }, cx, cy) {
 const q6 = (v) => Number(v.toFixed(6))
 const inside = (lon, lat) => lon >= BBOX.w && lon <= BBOX.e && lat >= BBOX.s && lat <= BBOX.n
 
+// ---------- zonas Fase C: buffers de cabeceras rurales ----------
+
+let cabeceraBoxes = []
+if (CON_CABECERAS) {
+  const cabPath = path.resolve('scripts/.cache/sil/cabeceras.geojson')
+  if (!fs.existsSync(cabPath)) {
+    console.error(`✗ Falta ${cabPath}: descarga primero las capas SIL (ver build-parroquias.mjs).`)
+    process.exit(1)
+  }
+  const feats = JSON.parse(fs.readFileSync(cabPath, 'utf8')).features
+  const walk = (c, cb) => {
+    if (typeof c[0] === 'number') cb(c)
+    else for (const i of c) walk(i, cb)
+  }
+  for (const f of feats) {
+    let minx = Infinity, miny = Infinity, maxx = -Infinity, maxy = -Infinity
+    walk(f.geometry.coordinates, ([x, y]) => {
+      if (x < minx) minx = x
+      if (y < miny) miny = y
+      if (x > maxx) maxx = x
+      if (y > maxy) maxy = y
+    })
+    cabeceraBoxes.push({
+      nombre: f.properties.parroquia,
+      w: minx - BUFFER_CABECERA, s: miny - BUFFER_CABECERA,
+      e: maxx + BUFFER_CABECERA, n: maxy + BUFFER_CABECERA,
+    })
+  }
+  console.log(`• ${cabeceraBoxes.length} cabeceras rurales con buffer de ~900 m`)
+}
+
+/** Devuelve 'urbano' | nombre de cabecera | null (fuera de cobertura). */
+function zonaDe(lon, lat) {
+  if (inside(lon, lat)) return 'urbano'
+  if (CON_CABECERAS) {
+    for (const b of cabeceraBoxes) {
+      if (lon >= b.w && lon <= b.e && lat >= b.s && lat <= b.n) return b.nombre
+    }
+  }
+  return null
+}
+
 // ---------- main ----------
 
 const t0 = Date.now()
@@ -96,6 +148,7 @@ const overture = JSON.parse(fs.readFileSync(overturePath, 'utf8'))
 const osmFeats = [], osmMeta = [] // {cx, cy, area} para grid de dedupe
 const mlCandidates = []
 let outside = 0, badGeom = 0
+const zonas = {} // zona -> n huellas (solo informativo con --con-cabeceras)
 
 for (const f of overture.features || []) {
   const g = f.geometry
@@ -104,14 +157,20 @@ for (const f of overture.features || []) {
   const ring0 = isMulti ? g.coordinates[0]?.[0] : g.coordinates[0]
   if (!ring0 || ring0.length < 4) { badGeom++; continue }
   const [cx, cy] = centroid(ring0)
-  if (!inside(cx, cy)) { outside++; continue }
+  const zona = zonaDe(cx, cy)
+  if (!zona) { outside++; continue }
+  zonas[zona] = (zonas[zona] || 0) + 1
   const area = ringArea(ring0)
   const srcs = JSON.stringify(f.properties?.sources || [])
   const item = { f, isMulti, ring0, cx, cy, area }
   if (srcs.includes('"osm"')) { osmFeats.push(item); osmMeta.push({ cx, cy, area }) }
   else mlCandidates.push(item)
 }
-console.log(`• Partición: ${osmFeats.length} OSM | ${mlCandidates.length} ML | ${outside} fuera de caja | ${badGeom} geometrías inválidas`)
+console.log(`• Partición: ${osmFeats.length} OSM | ${mlCandidates.length} ML | ${outside} fuera de cobertura | ${badGeom} geometrías inválidas`)
+if (CON_CABECERAS) {
+  const top = Object.entries(zonas).sort((a, b) => b[1] - a[1])
+  console.log('• Por zona: ' + top.map(([z, n]) => `${z}:${n}`).join(' '))
+}
 
 // Grid de dedupe (~22 m por celda)
 const CELL = 0.0002

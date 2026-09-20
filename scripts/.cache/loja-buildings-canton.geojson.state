@@ -1,0 +1,14 @@
+{
+  "last_release": "2026-08-19.0",
+  "last_run": "2026-09-19T20:06:57.021207+00:00",
+  "theme": "buildings",
+  "type": "building",
+  "bbox": {
+    "xmin": -79.6,
+    "ymin": -4.56,
+    "xmax": -79.05,
+    "ymax": -3.62
+  },
+  "backend": "geojson",
+  "output": "/Users/ricardo/Etherlab/Campan\u0303a/scripts/.cache/loja-buildings-canton.geojson"
+}

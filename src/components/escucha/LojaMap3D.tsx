@@ -7,6 +7,8 @@ import { Building2, Car, ChevronDown, Droplets, Trash2 } from 'lucide-react'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Protocol as PmtilesProtocol } from 'pmtiles'
 import { CATEGORIAS_VISUALES, categoriaVisual, gravedadColor } from '../../lib/escucha/geo'
+import { resolverUbicacion } from '../../lib/escucha/store'
+import { PARROQUIAS, PARROQUIA_POR_ID, CANTON_BOUNDS_LL } from '../../data/parroquias'
 import type { CategoriaIconKey } from '../../lib/escucha/geo'
 import type { MediaItem } from '../../lib/escucha/media'
 import { getObjectUrlForRef, isMediaRef } from '../../lib/escucha/media'
@@ -93,9 +95,16 @@ type ClusterInputFeature = {
 }
 
 const LOJA_CENTER: [number, number] = [-79.2042, -3.9931]
-const LOJA_BOUNDS: [[number, number], [number, number]] = [
-  [-79.29, -4.08],
-  [-79.12, -3.91],
+/** Cobertura cantonal (ciudad + 13 parroquias rurales). */
+const LOJA_BOUNDS: [[number, number], [number, number]] = CANTON_BOUNDS_LL
+/**
+ * Leash del mapa: caja centrada en la CIUDAD que contiene al cantón.
+ * Cuando el viewport supera al maxBounds, MapLibre centra en su centroide —
+ * con el bbox cantonal la vista derivaba al sur; así la ciudad queda centrada.
+ */
+const CITY_CENTERED_BOUNDS: [[number, number], [number, number]] = [
+  [LOJA_CENTER[0] - 0.38, LOJA_CENTER[1] - 0.56],
+  [LOJA_CENTER[0] + 0.38, LOJA_CENTER[1] + 0.56],
 ]
 const TERRAIN_PITCH = 52
 const SAFE_MAX_PITCH = 68
@@ -166,10 +175,11 @@ function fmtFecha(iso: string): string {
   return `${fecha.getDate()} ${MESES_CORTOS[fecha.getMonth()]} ${fecha.getFullYear()} · ${hh}:${mm}`
 }
 
-/** Agrupa reportes por celda (4 decimales) + categoría, respeta filtros y normaliza intensidad 0..1. */
+/** Agrupa reportes por celda (4 decimales) + categoría, respeta filtros y foco parroquial, normaliza intensidad 0..1. */
 function buildPins(
   reports: LojaReport[],
   excluded: Set<string>,
+  focusParroquia: string | null,
 ): { features: ReportFeature[]; mediaById: Map<string, MediaItem> } {
   const grouped = new Map<string, ReportFeature>()
   const mediaById = new Map<string, MediaItem>()
@@ -180,6 +190,7 @@ function buildPins(
     if (!isInsideLoja(lng, lat)) return
     const vis = categoriaVisual(report.categoria)
     if (excluded.has(vis.key)) return
+    if (focusParroquia && resolverUbicacion(lat, lng).parroquia.id !== focusParroquia) return
     const categoria = report.categoria || 'Reporte ciudadano'
     const key = `${lat.toFixed(4)}:${lng.toFixed(4)}:${vis.key}`
     const count = Math.max(1, Number(report.count) || 1)
@@ -217,7 +228,7 @@ function buildPins(
 }
 
 /** Input del source de clusters: una feature por celda (sin separar por categoría). */
-function buildClusterInput(reports: LojaReport[], excluded: Set<string>): ClusterInputFeature[] {
+function buildClusterInput(reports: LojaReport[], excluded: Set<string>, focusParroquia: string | null): ClusterInputFeature[] {
   const grouped = new Map<string, ClusterInputFeature>()
   reports.forEach((report) => {
     const lat = Number(report.lat)
@@ -225,6 +236,7 @@ function buildClusterInput(reports: LojaReport[], excluded: Set<string>): Cluste
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
     if (!isInsideLoja(lng, lat)) return
     if (excluded.has(categoriaVisual(report.categoria).key)) return
+    if (focusParroquia && resolverUbicacion(lat, lng).parroquia.id !== focusParroquia) return
     const key = `${lat.toFixed(4)}:${lng.toFixed(4)}`
     const count = Math.max(1, Number(report.count) || 1)
     const current = grouped.get(key)
@@ -247,9 +259,6 @@ type LojaMap3DProps = {
   embedded?: boolean
   /** full: clusters + panel de filtros. lite: solo heat + pins (landing). */
   mode?: 'full' | 'lite'
-  /** Muestra el botón "Reportar aquí" en los popups de ubicación. */
-  showReportButton?: boolean
-  onReportLocation?: (loc: { lat: number; lng: number; address: string }) => void
   className?: string
 }
 
@@ -257,18 +266,14 @@ export default function LojaMap3D({
   reports,
   embedded = true,
   mode = 'full',
-  showReportButton = false,
-  onReportLocation,
   className = '',
 }: LojaMap3DProps) {
   const lite = mode === 'lite'
   const wrapRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
-  const popupRef = useRef<maplibregl.Popup | null>(null)
   const cardPopupRef = useRef<maplibregl.Popup | null>(null)
   const locationMarkerRef = useRef<maplibregl.Marker | null>(null)
-  const locationPopupRef = useRef<maplibregl.Popup | null>(null)
   const terrainOnRef = useRef(!WEAK_DEVICE)
   const terrainBusyRef = useRef(false)
   const spritesOkRef = useRef(false)
@@ -276,26 +281,32 @@ export default function LojaMap3D({
   // Muestreo de color de techos (roofs.ts) → feature-state, sin re-serializar.
   const sampledRoofsRef = useRef<Set<number>>(new Set())
   const samplingBusyRef = useRef(false)
-  const [mlOn, setMlOn] = useState(true)
-  const mlOnRef = useRef(true)
   // Carga diferida: el mapa (módulo + datos) solo inicializa cerca del viewport.
   const [inView, setInView] = useState(false)
   const [mapLoaded, setMapLoaded] = useState(false)
 
-  const [terrainOn, setTerrainOn] = useState(!WEAK_DEVICE)
+  // Modo del mapa: 3D = terreno + edificios + volúmenes ML; 2D = plano sin volúmenes.
+  const [dim, setDim] = useState<'2d' | '3d'>(WEAK_DEVICE ? '2d' : '3d')
+  const dimRef = useRef(dim)
+  dimRef.current = dim
   const [busy, setBusy] = useState<null | 'location'>(null)
   const [toast, setToast] = useState('')
-  const [filtersOpen, setFiltersOpen] = useState(true)
+  // Filtros colapsados por defecto en móvil, abiertos en desktop.
+  const [filtersOpen, setFiltersOpen] = useState(() =>
+    typeof window !== 'undefined' && window.matchMedia('(min-width: 640px)').matches,
+  )
   const [filtros, setFiltros] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(CATEGORIAS_VISUALES.map((c) => [c.key, true])),
   )
+  /** Foco parroquial: click en una parroquia filtra reportes y vuela a su bbox. */
+  const [focusParroquia, setFocusParroquia] = useState<string | null>(null)
 
   const excluded = useMemo(
     () => new Set(CATEGORIAS_VISUALES.filter((c) => !filtros[c.key]).map((c) => c.key)),
     [filtros],
   )
-  const pins = useMemo(() => buildPins(reports, excluded), [reports, excluded])
-  const clusterFeatures = useMemo(() => buildClusterInput(reports, excluded), [reports, excluded])
+  const pins = useMemo(() => buildPins(reports, excluded, focusParroquia), [reports, excluded, focusParroquia])
+  const clusterFeatures = useMemo(() => buildClusterInput(reports, excluded, focusParroquia), [reports, excluded, focusParroquia])
   const totalAportes = useMemo(
     () => reports.reduce((total, report) => total + Math.max(1, Math.round(report.count || 1)), 0),
     [reports],
@@ -308,22 +319,8 @@ export default function LojaMap3D({
   const mediaByIdRef = useRef(pins.mediaById)
   mediaByIdRef.current = pins.mediaById
 
-  const onReportRef = useRef(onReportLocation)
-  onReportRef.current = onReportLocation
-  const showReportRef = useRef(showReportButton)
-  showReportRef.current = showReportButton
-
   const setPopupLayout = (open: boolean) =>
     wrapRef.current?.classList.toggle('loja-map-popup-open', open)
-
-  const reportButtonHtml = (label: string) =>
-    showReportRef.current ? `<button class="loja-map-report-btn" type="button">${label}</button>` : ''
-
-  const bindReportButton = (element: HTMLElement | null | undefined, loc: { lat: number; lng: number; address: string }) => {
-    element?.querySelector('.loja-map-report-btn')?.addEventListener('click', () => {
-      onReportRef.current?.(loc)
-    })
-  }
 
   const showToast = (message: string) => {
     setToast(message)
@@ -374,25 +371,10 @@ export default function LojaMap3D({
     })
   }
 
-  const handleMlToggle = () => {
-    const map = mapRef.current
-    const next = !mlOnRef.current
-    mlOnRef.current = next
-    setMlOn(next)
-    try {
-      map?.setFilter('buildings-3d', next ? null : ['!=', ['get', 'ml'], 1])
-    } catch {
-      /* capa aún no creada */
-    }
-  }
-
   const openReportPopup = (feature: ReportFeature, lngLat: [number, number]) => {
     const map = mapRef.current
     const cardPopup = cardPopupRef.current
     if (!map || !cardPopup) return
-    popupRef.current?.remove()
-    locationPopupRef.current?.remove()
-    locationPopupRef.current = null
 
     const props = feature.properties
     const vis = categoriaVisual(props.categoria)
@@ -493,10 +475,11 @@ export default function LojaMap3D({
         container,
         style: SATELLITE_STYLE,
         center: LOJA_CENTER,
-        bounds: LOJA_BOUNDS,
-        maxBounds: LOJA_BOUNDS,
+        // Sin `bounds` inicial: la cámara arranca en la ciudad (zoom 13.5);
+        // maxBounds permite abrir hasta la vista cantonal.
+        maxBounds: CITY_CENTERED_BOUNDS,
         zoom: 13.5,
-        minZoom: 11,
+        minZoom: 10,
         maxZoom: 18,
         pitch: TERRAIN_PITCH,
         bearing: -12,
@@ -512,11 +495,7 @@ export default function LojaMap3D({
       map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right')
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right')
 
-    const popup = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 14 })
-    popupRef.current = popup
-    popup.on('open', () => setPopupLayout(true))
-    popup.on('close', () => setPopupLayout(false))
-
+    // Único popup del mapa: la tarjeta de detalle del reporte.
     const cardPopup = new maplibregl.Popup({
       closeButton: true,
       closeOnClick: true,
@@ -587,29 +566,47 @@ export default function LojaMap3D({
             'fill-extrusion-vertical-gradient': true,
           },
         })
-        map.addSource('selected-building', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } })
-        map.addLayer({
-          id: 'selected-building-3d',
-          type: 'fill-extrusion',
-          source: 'selected-building',
-          paint: {
-            'fill-extrusion-color': '#FCC019',
-            'fill-extrusion-height': ['coalesce', ['get', 'h'], 8],
-            'fill-extrusion-opacity': 0.72,
-          },
-        })
+        // En modo 2D los volúmenes ML no se muestran (solo en 3D).
+        if (dimRef.current === '2d') {
+          map.setFilter('buildings-3d', ['!=', ['get', 'ml'], 1])
+        }
         // Nombres de barrios/sectores para orientarse sobre el satélite.
+        // Dos niveles por rank (evita duplicar las etiquetas SIL propias):
+        // overview = solo ciudades (Loja 6, Zamora 7); detalle = resto.
         map.addLayer({
           id: 'place-labels-3d',
           type: 'symbol',
           source: 'openmaptiles',
           'source-layer': 'place',
           minzoom: 11,
+          maxzoom: 13.5,
+          filter: [
+            'all',
+            ['has', 'name'],
+            ['!=', ['get', 'class'], 'ocean'],
+            ['<=', ['coalesce', ['get', 'rank'], 20], 7],
+          ],
+          layout: {
+            'text-field': ['get', 'name'],
+            'text-font': ['Noto Sans Regular'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 11, 11, 13.5, 14],
+            'text-anchor': 'center',
+            'text-max-width': 8,
+            'symbol-sort-key': ['coalesce', ['get', 'rank'], 20],
+          },
+          paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.75)', 'text-halo-width': 1.6 },
+        })
+        map.addLayer({
+          id: 'place-detail-3d',
+          type: 'symbol',
+          source: 'openmaptiles',
+          'source-layer': 'place',
+          minzoom: 13.5,
           filter: ['all', ['has', 'name'], ['!=', ['get', 'class'], 'ocean']],
           layout: {
             'text-field': ['get', 'name'],
             'text-font': ['Noto Sans Regular'],
-            'text-size': ['interpolate', ['linear'], ['zoom'], 11, 11, 16, 15],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 13.5, 11, 16, 14],
             'text-anchor': 'center',
             'text-max-width': 8,
             'symbol-sort-key': ['coalesce', ['get', 'rank'], 20],
@@ -635,44 +632,152 @@ export default function LojaMap3D({
           paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.75)', 'text-halo-width': 1.4 },
         })
 
-        map.on('click', 'buildings-3d', async (event) => {
-          cardPopupRef.current?.remove()
-          locationPopupRef.current?.remove()
-          locationPopupRef.current = null
-          const building = map.queryRenderedFeatures(event.point, { layers: ['buildings-3d'] })[0]
-          if (!building) return
-          const selectedSource = map.getSource('selected-building') as maplibregl.GeoJSONSource | undefined
-          if (selectedSource) {
-            selectedSource.setData({
-              type: 'FeatureCollection',
-              features: [{ type: 'Feature', properties: building.properties || {}, geometry: building.geometry }],
-            })
-          }
-          const props = building.properties || {}
-          const address =
-            props['addr:street'] || props['addr:housenumber']
-              ? `${props['addr:street'] || ''} ${props['addr:housenumber'] || ''}`.trim()
-              : 'Edificio seleccionado'
-          const lat = Number(event.lngLat?.lat)
-          const lng = Number(event.lngLat?.lng)
-          if (!isValidLngLat(lng, lat)) return
-          let geocodedAddress = address
-          try {
-            const response = await fetch(
-              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&accept-language=es`,
-            )
-            if (response.ok) geocodedAddress = (await response.json()).display_name || address
-          } catch {
-            /* Se conserva la dirección OSM del edificio. */
-          }
-          popup
-            .setLngLat(event.lngLat)
-            .setHTML(
-              `<div class="loja-map-popup-title">Ubicación seleccionada</div><div class="loja-map-popup-n">${geocodedAddress}</div>${reportButtonHtml('Reportar aquí')}`,
-            )
-            .addTo(map)
-          bindReportButton(popup.getElement(), { lat, lng, address: geocodedAddress })
+        // Límites oficiales SIL (PMTiles propio): 13 parroquias rurales +
+        // 6 urbanas + 63 barrios + cabeceras. Debajo de los reportes.
+        map.addSource('territorio', {
+          type: 'vector',
+          url: `pmtiles://${import.meta.env.BASE_URL}data/loja-territorio.pmtiles`,
         })
+        map.addLayer({
+          id: 'parroquias-rurales-line',
+          type: 'line',
+          source: 'territorio',
+          'source-layer': 'rurales',
+          minzoom: 8,
+          paint: {
+            'line-color': '#ffffff',
+            'line-opacity': 0.55,
+            'line-width': ['interpolate', ['linear'], ['zoom'], 8, 1, 12, 1.6, 16, 2.5],
+          },
+        })
+        map.addLayer({
+          id: 'parroquias-urbanas-line',
+          type: 'line',
+          source: 'territorio',
+          'source-layer': 'urbanas',
+          minzoom: 10,
+          paint: {
+            'line-color': '#ffd166',
+            'line-opacity': 0.7,
+            'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1, 14, 1.8],
+            'line-dasharray': [3, 1.6],
+          },
+        })
+        // Hit areas invisibles para click (las líneas son difíciles de tocar).
+        for (const [hitId, layer] of [['parroquias-rurales-hit', 'rurales'], ['parroquias-urbanas-hit', 'urbanas']] as const) {
+          map.addLayer({
+            id: hitId,
+            type: 'fill',
+            source: 'territorio',
+            'source-layer': layer,
+            paint: { 'fill-color': '#ffffff', 'fill-opacity': 0 },
+          })
+        }
+        // Etiquetas desde centroides puntuales (los símbolos sobre polígonos se
+        // duplican cuando el polígono cruza bordes de tile; los puntos, nunca).
+        map.addLayer({
+          id: 'parroquias-rurales-label',
+          type: 'symbol',
+          source: 'territorio',
+          'source-layer': 'centroides',
+          minzoom: 8,
+          maxzoom: 13,
+          filter: ['==', ['get', 'tipo'], 'rural'],
+          layout: {
+            'text-field': ['get', 'nombre'],
+            'text-font': ['Noto Sans Bold'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 8, 11, 12, 14],
+            'text-anchor': 'center',
+            'text-max-width': 8,
+            'text-transform': 'uppercase',
+            'text-letter-spacing': 0.08,
+          },
+          paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,20,60,0.8)', 'text-halo-width': 1.6 },
+        })
+        map.addLayer({
+          id: 'parroquias-urbanas-label',
+          type: 'symbol',
+          source: 'territorio',
+          'source-layer': 'centroides',
+          minzoom: 11.5,
+          maxzoom: 14.5,
+          filter: ['==', ['get', 'tipo'], 'urbana'],
+          layout: {
+            'text-field': ['get', 'nombre'],
+            'text-font': ['Noto Sans Bold'],
+            'text-size': ['interpolate', ['linear'], ['zoom'], 11.5, 12, 14, 15],
+            'text-anchor': 'center',
+            'text-max-width': 8,
+            'text-letter-spacing': 0.06,
+          },
+          paint: { 'text-color': '#ffe9a8', 'text-halo-color': 'rgba(0,20,60,0.85)', 'text-halo-width': 1.6 },
+        })
+        map.addLayer({
+          id: 'cabeceras-label',
+          type: 'symbol',
+          source: 'territorio',
+          'source-layer': 'centroides',
+          minzoom: 10.5,
+          maxzoom: 13.5,
+          filter: ['==', ['get', 'tipo'], 'cabecera'],
+          layout: {
+            'text-field': ['get', 'nombre'],
+            'text-font': ['Noto Sans Regular'],
+            'text-size': 11,
+            'text-anchor': 'top',
+            'text-offset': [0, 0.9],
+            'text-max-width': 8,
+          },
+          paint: { 'text-color': '#ffe9a8', 'text-halo-color': 'rgba(0,0,0,0.8)', 'text-halo-width': 1.5 },
+        })
+        map.addLayer({
+          id: 'barrios-line',
+          type: 'line',
+          source: 'territorio',
+          'source-layer': 'barrios',
+          minzoom: 13.5,
+          paint: { 'line-color': '#ffffff', 'line-opacity': 0.35, 'line-width': 1 },
+        })
+        map.addLayer({
+          id: 'barrios-label',
+          type: 'symbol',
+          source: 'territorio',
+          'source-layer': 'centroides',
+          minzoom: 14.5,
+          filter: ['==', ['get', 'tipo'], 'barrio'],
+          layout: {
+            'text-field': ['get', 'nombre'],
+            'text-font': ['Noto Sans Regular'],
+            'text-size': 10.5,
+            'text-anchor': 'center',
+            'text-max-width': 7,
+          },
+          paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.75)', 'text-halo-width': 1.4 },
+        })
+
+        // Click en parroquia: foco (filtra reportes) + vuelo a su bbox.
+        const focusByNombre = (nombre: unknown) => {
+          if (typeof nombre !== 'string') return
+          const p = PARROQUIAS.find((x) => x.nombre === nombre)
+          if (!p) return
+          setFocusParroquia(p.id)
+          map.flyTo({
+            center: [p.centro[1], p.centro[0]],
+            zoom: p.tipo === 'rural' ? 12 : 14,
+            duration: 900,
+          })
+        }
+        for (const hitId of ['parroquias-rurales-hit', 'parroquias-urbanas-hit'] as const) {
+          map.on('mouseenter', hitId, () => {
+            map.getCanvas().style.cursor = 'pointer'
+          })
+          map.on('mouseleave', hitId, () => {
+            map.getCanvas().style.cursor = ''
+          })
+          map.on('click', hitId, (event) => {
+            focusByNombre(event.features?.[0]?.properties?.nombre)
+          })
+        }
       } catch {
         /* Estilo sin capa de edificios: el mapa sigue funcionando. */
       }
@@ -696,19 +801,24 @@ export default function LojaMap3D({
           maxzoom: 17,
           paint: {
             'heatmap-weight': ['get', 'intensity'],
-            'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 10, 0.8, 16, 2.2],
-            'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 10, 16, 16, 40],
-            'heatmap-opacity': 0.6,
+            // Kernel amplio + intensidad alta: con pocos reportes dispersos cada
+            // punto forma su mancha (verde→azul); donde se solapan, núcleo naranja.
+            // Paradas bajas para la vista cantonal (z10).
+            'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 10, 2.2, 16, 5],
+            'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 10, 18, 16, 48],
+            'heatmap-opacity': 0.75,
             'heatmap-color': [
               'interpolate',
               ['linear'],
               ['heatmap-density'],
               0,
               'rgba(13,185,84,0)',
-              0.25,
-              'rgba(13,185,84,0.7)',
-              0.55,
-              'rgba(0,38,147,0.85)',
+              0.2,
+              'rgba(13,185,84,0.8)',
+              0.45,
+              'rgba(0,38,147,0.9)',
+              0.7,
+              'rgba(254,100,15,0.95)',
               1,
               'rgba(254,65,2,0.95)',
             ],
@@ -837,9 +947,7 @@ export default function LojaMap3D({
 
     return () => {
       cancelled = true
-      locationPopupRef.current = null
       locationMarkerRef.current = null
-      popupRef.current = null
       cardPopupRef.current = null
       mapRef.current = null
       mapInstance?.remove()
@@ -866,7 +974,6 @@ export default function LojaMap3D({
 
   const handleUseLocation = () => {
     const map = mapRef.current
-    const popup = popupRef.current
     const maplibre = maplibreMod
     if (!map || !maplibre) return
     if (!('geolocation' in navigator)) {
@@ -887,24 +994,11 @@ export default function LojaMap3D({
           showToast('Tu ubicación está fuera de Loja')
           return
         }
-        popup?.remove()
         cardPopupRef.current?.remove()
-        locationPopupRef.current?.remove()
-        locationPopupRef.current = null
         locationMarkerRef.current?.remove()
         const marker = new maplibre.Marker({ color: '#FE4102' }).setLngLat([lng, lat]).addTo(map)
         locationMarkerRef.current = marker
         map.flyTo({ center: [lng, lat], zoom: 18, pitch: TERRAIN_PITCH, duration: 1200 })
-        const locationPopup = new maplibre.Popup({ closeButton: true, offset: 28 })
-          .setLngLat([lng, lat])
-          .setHTML(
-            `<div class="loja-map-popup-title">Estás aquí</div><div class="loja-map-popup-n">Ubicación confirmada en Loja</div>${reportButtonHtml('Reportar ahora')}`,
-          )
-          .addTo(map)
-        locationPopupRef.current = locationPopup
-        locationPopup.on('open', () => setPopupLayout(true))
-        locationPopup.on('close', () => setPopupLayout(false))
-        bindReportButton(locationPopup.getElement(), { lat, lng, address: 'Ubicación actual en Loja' })
       },
       (error) => {
         setBusy(null)
@@ -918,19 +1012,31 @@ export default function LojaMap3D({
     )
   }
 
-  const handleTerrainToggle = () => {
+  const handleDimChange = (next: '2d' | '3d') => {
+    if (next === dimRef.current) return
     const map = mapRef.current
+    // Bloqueado durante una transición en curso para no desincronizar estado y terreno.
     if (!map || terrainBusyRef.current || map.isMoving()) return
+    setDim(next)
+    dimRef.current = next
     terrainBusyRef.current = true
     map.stop()
     const finishTransition = (terrainEnabled: boolean) => {
       map.resize()
       terrainOnRef.current = terrainEnabled
-      setTerrainOn(terrainEnabled)
       terrainBusyRef.current = false
     }
 
-    if (terrainOnRef.current) {
+    // Volúmenes ML: solo visibles en modo 3D.
+    try {
+      if (map.getLayer('buildings-3d')) {
+        map.setFilter('buildings-3d', next === '3d' ? null : ['!=', ['get', 'ml'], 1])
+      }
+    } catch {
+      /* capa aún no creada */
+    }
+
+    if (next === '2d') {
       // Primero nivelamos la cámara para no dejarla bajo el terreno al retirarlo.
       map.easeTo({ pitch: 0, duration: 450 })
       map.once('moveend', () => {
@@ -975,26 +1081,39 @@ export default function LojaMap3D({
       <div className="loja-map-hud">
         <div className="loja-map-top-row">
           {!lite && <div className="loja-map-status-pill">{totalAportes} aportes registrados</div>}
+          {focusParroquia && (
+            <button
+              type="button"
+              className="loja-map-status-pill"
+              onClick={() => setFocusParroquia(null)}
+              title="Quitar filtro de parroquia"
+              aria-label={`Quitar filtro: ${PARROQUIA_POR_ID[focusParroquia]?.nombre ?? 'parroquia'}`}
+            >
+              {PARROQUIA_POR_ID[focusParroquia]?.nombre ?? 'Parroquia'}&nbsp;×
+            </button>
+          )}
           <div className="loja-map-toggles">
             <button className="loja-map-toggle" type="button" disabled={busy === 'location'} onClick={handleUseLocation}>
               Usar ubicación actual
             </button>
-            <button
-              className="loja-map-toggle"
-              type="button"
-              aria-pressed={terrainOn}
-              onClick={handleTerrainToggle}
-            >
-              Terreno 3D
-            </button>
-            <button
-              className="loja-map-toggle"
-              type="button"
-              aria-pressed={mlOn}
-              onClick={handleMlToggle}
-            >
-              Volúmenes ML
-            </button>
+            <div className="loja-map-dim" role="group" aria-label="Modo del mapa (2D plano o 3D con terreno)">
+              <button
+                type="button"
+                className="loja-map-toggle"
+                aria-pressed={dim === '2d'}
+                onClick={() => handleDimChange('2d')}
+              >
+                2D
+              </button>
+              <button
+                type="button"
+                className="loja-map-toggle"
+                aria-pressed={dim === '3d'}
+                onClick={() => handleDimChange('3d')}
+              >
+                3D
+              </button>
+            </div>
           </div>
         </div>
 

@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { CircleAlert, LogOut, Save, UserRound } from 'lucide-react'
+import { CircleAlert, LogOut, Save } from 'lucide-react'
+import PageBanner from '../../components/escucha/PageBanner'
 import { useAuth } from '../../components/escucha/AuthContext'
 import { formatearCedula, validarCedulaEcuador } from '../../lib/escucha/cedula'
 
@@ -38,19 +39,17 @@ export default function CuentaPage() {
   }
 
   return (
-    <main className="mx-auto w-full max-w-md px-5 pt-6">
-      <div className="flex items-center gap-3">
-        <span className="grid h-12 w-12 place-items-center rounded-2xl bg-[#002693]/[0.07] text-[#002693]">
-          <UserRound size={22} aria-hidden="true" />
-        </span>
-        <div>
-          <h1 className="text-xl font-black tracking-tight text-[#111]">Mi cuenta</h1>
-          <p className="text-[13px] text-[#111]/55">
-            Sesión de vecino{sesion?.createdAt ? ` · desde ${new Date(sesion.createdAt).toLocaleDateString()}` : ''}
-          </p>
-        </div>
-      </div>
+    <main className="mx-auto w-full max-w-md px-5 pt-5 lg:max-w-2xl lg:px-8">
+      <PageBanner
+        variant="compact"
+        className="rounded-2xl"
+        hideLogoDesktop
+        eyebrow="Mi cuenta"
+        title={`Hola${sesion?.nombre ? `, ${sesion.nombre.split(' ')[0]}` : ', vecino'}`}
+        desc={`Sesión de vecino${sesion?.createdAt ? ` · desde ${new Date(sesion.createdAt).toLocaleDateString()}` : ''}`}
+      />
 
+      <div className="pb-6">
       <section aria-label="Datos de sesión" className="mt-4 rounded-2xl border bg-white p-4">
         <div className="flex flex-col gap-3">
           <div className="flex flex-col gap-1.5">
@@ -113,9 +112,9 @@ export default function CuentaPage() {
           Acerca de
         </h2>
         <p className="mt-2 text-[13px] leading-relaxed text-[#111]/65">
-          Escucha Loja es un canal directo entre vecinos y candidato: tus reportes alimentan
-          el mapa, las estadísticas y la priorización de la ciudad. Tus datos personales
-          nunca se publican. Demo local sin servidor.
+          Escucha Loja es un canal directo con la ciudad: tus reportes alimentan
+          el mapa, las estadísticas y la priorización que revisamos cada semana.
+          Tus datos personales nunca se publican. Demo local sin servidor.
         </p>
       </section>
 
@@ -128,6 +127,7 @@ export default function CuentaPage() {
       >
         <LogOut size={17} aria-hidden="true" /> Cerrar sesión
       </button>
+      </div>
     </main>
   )
 }
