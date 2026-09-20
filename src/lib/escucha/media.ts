@@ -28,12 +28,13 @@ export function isMediaRef(item: MediaItem): item is MediaRef {
 // ---------- IndexedDB ----------
 
 const DB_NAME = 'escucha-loja'
-const DB_VERSION = 1
+const DB_VERSION = 2
 const STORE_MEDIA = 'media'
+export const STORE_IA = 'ia'
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
-function openDb(): Promise<IDBDatabase> {
+export function openDb(): Promise<IDBDatabase> {
   if (typeof window === 'undefined') return Promise.reject(new Error('Sin ventana'))
   if (dbPromise) return dbPromise
   dbPromise = new Promise((resolve, reject) => {
@@ -43,6 +44,9 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains(STORE_MEDIA)) {
         db.createObjectStore(STORE_MEDIA, { keyPath: 'id' })
       }
+      if (!db.objectStoreNames.contains(STORE_IA)) {
+        db.createObjectStore(STORE_IA, { keyPath: 'id' })
+      }
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => {
@@ -51,6 +55,30 @@ function openDb(): Promise<IDBDatabase> {
     }
   })
   return dbPromise
+}
+
+/** Transaction genérica sobre cualquier store de la base local (media, ia, ...). */
+export function idbStore<T>(
+  store: string,
+  mode: IDBTransactionMode,
+  run: (s: IDBObjectStore) => IDBRequest<T>,
+): Promise<T> {
+  return openDb().then(
+    (db) =>
+      new Promise<T>((resolve, reject) => {
+        const t = db.transaction(store, mode)
+        const s = t.objectStore(store)
+        let req: IDBRequest<T>
+        try {
+          req = run(s)
+        } catch (e) {
+          reject(e)
+          return
+        }
+        req.onsuccess = () => resolve(req.result)
+        req.onerror = () => reject(req.error ?? new Error('Error de almacenamiento local'))
+      }),
+  )
 }
 
 interface MediaRecord {

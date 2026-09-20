@@ -14,6 +14,7 @@ export interface Prioridad {
   sector: string
   casos: number
   gravedadMax: string
+  categoriaPrincipal: string
   breakdown: string
   justificacion: string
   accion: string
@@ -30,6 +31,37 @@ export interface AnalysisReport {
   palabrasClave: { texto: string; casos: number }[]
   emergentes: string[]
   rachaDias: number
+  /** Lectura única de la ciudad. El heurístico la redacta como respaldo; la IA la sustituye por una versión unificada. */
+  lectura: LecturaUnificada
+  /** true si la lectura proviene de un modelo de IA real (no del respaldo heurístico). */
+  aiAvailable?: boolean
+}
+
+export type ImpactoRecomendacion = 'Alta' | 'Media' | 'Baja'
+
+export interface RecomendacionIA {
+  accion: string
+  sector: string
+  categoria: string
+  impacto: ImpactoRecomendacion
+}
+
+/**
+ * Lectura única y unificada del panel "Análisis". El motor heurístico la genera
+ * como respaldo sin red; cuando hay backend y modelo de IA, la capa LLM la
+ * redacta en lenguaje natural a partir de los mismos datos reales, unificando,
+ * priorizando y recomendando según la base de datos.
+ */
+export interface LecturaUnificada {
+  origen: 'heuristica' | 'ia'
+  queEstaPasando: string[]
+  observacionPrincipal: string
+  tendenciasYPatrones: string[]
+  prioridad: string
+  recomendaciones: RecomendacionIA[]
+  enfoqueUrgente: string
+  advertenciaEstadistica: string | null
+  notaHonesta: string | null
 }
 
 /**
@@ -130,11 +162,13 @@ export function rachaAportes(denuncias: MvpDenuncia[]): number {
 }
 
 const METODOLOGIA =
-  'Priorización heurística y auditable (sin caja negra): cada aporte recibe un score 0–100 ' +
+  'Priorización híbrida y auditable (sin caja negra): cada aporte recibe un score 0–100 ' +
   '(40% densidad del cluster, 25% gravedad, 15% cronicidad, 10% impacto en salud/movilidad, +8 si ya fue reportado). ' +
   'Los sectores se agrupan por cercanía (~550 m) y se ordenan por casos y gravedad máxima. ' +
-  'Las proyecciones sobre el mapa 3D son aproximadas por diseño. Esta interfaz (AnalysisProvider) ' +
-  'permite conectar un modelo de IA real cuando haya backend sin cambiar la presentación.'
+  'Ese cálculo alimenta un prompt en lenguaje natural para un modelo de IA que redacta la LECTURA ÚNICA ' +
+  'del panel: qué está pasando, patrones, prioridad, recomendaciones y enfoque urgente, siempre con los datos ' +
+  'reales de la base. Si la IA no está disponible, el respaldo heurístico redacta la misma lectura. ' +
+  'Las proyecciones sobre el mapa 3D son aproximadas por diseño.'
 
 export const HeuristicProvider: AnalysisProvider = {
   id: 'heuristico-v1',
@@ -176,6 +210,8 @@ export const HeuristicProvider: AnalysisProvider = {
         sector: getBarrioAprox(c.lat, c.lng),
         casos: c.count,
         gravedadMax: c.maxGravedad,
+        categoriaPrincipal:
+          Object.entries(c.categorias).sort((a, b) => (b[1] as number) - (a[1] as number))[0]?.[0] ?? 'Varios',
         breakdown,
         justificacion:
           c.count >= 3
@@ -206,6 +242,41 @@ export const HeuristicProvider: AnalysisProvider = {
     if (ya.pct > 30 && stats.total > 0)
       recomendaciones.push('Publica un compromiso visible de 48h en el hotspot principal para recuperar confianza.')
 
+    const focusSectores = Array.from(new Set(prioridades.slice(0, 2).map((p) => p.sector)))
+    const lectura: LecturaUnificada = {
+      origen: 'heuristica',
+      queEstaPasando: resumen.slice(0, 2),
+      observacionPrincipal: prioridades[0]
+        ? `La mayor concentración de casos se encuentra en ${prioridades[0].sector} (${prioridades[0].casos} caso${prioridades[0].casos === 1 ? '' : 's'}, gravedad máxima ${prioridades[0].gravedadMax}).`
+        : 'Aún no hay aportes suficientes para una observación principal.',
+      tendenciasYPatrones: tendencias.slice(0, 3),
+      prioridad: prioridades[0]
+        ? `El sector ${prioridades[0].sector} requiere atención inmediata con prioridad máxima (gravedad ${prioridades[0].gravedadMax}, ${prioridades[0].casos} caso${prioridades[0].casos === 1 ? '' : 's'}).`
+        : 'Aún no hay sectores priorizados.',
+      recomendaciones: prioridades.slice(0, 4).map((p) => ({
+        accion: p.accion,
+        sector: p.sector,
+        categoria: p.categoriaPrincipal,
+        impacto:
+          p.gravedadMax === 'Crítica' || p.gravedadMax === 'Alta'
+            ? 'Alta'
+            : p.gravedadMax === 'Baja'
+              ? 'Baja'
+              : 'Media',
+      })),
+      enfoqueUrgente: prioridades[0]
+        ? `Concentra la intervención en ${focusSectores.join(' y ')}: ${prioridades[0].casos} caso${prioridades[0].casos === 1 ? '' : 's'} de gravedad máxima ${prioridades[0].gravedadMax}. Prioriza atención rápida, mejor coordinación y seguimiento visible para recuperar la confianza.`
+        : 'Comparte la encuesta para empezar a escuchar y priorizar.',
+      advertenciaEstadistica:
+        stats.total > 0 && stats.total < 30
+          ? `El total de aportes es de solo ${stats.total} registros, una muestra pequeña: las variaciones porcentuales no deben interpretarse como tendencia consolidada todavía.`
+          : null,
+      notaHonesta:
+        ya.pct > 30 && stats.total > 0
+          ? `${ya.pct}% de los casos ya fue reportado antes: hay una deuda de confianza por recuperar con una intervención visible.`
+          : null,
+    }
+
     return {
       generadoEn: new Date().toISOString(),
       total: stats.total,
@@ -217,6 +288,8 @@ export const HeuristicProvider: AnalysisProvider = {
       palabrasClave: topKeywords(denuncias),
       emergentes: sectoresEmergentes(denuncias, clusters),
       rachaDias: rachaAportes(denuncias),
+      lectura,
+      aiAvailable: false,
     }
   },
 }

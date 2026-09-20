@@ -23,6 +23,7 @@
     "framer-motion": "^13.1.0",
     "lucide-react": "^0.400.0",
     "maplibre-gl": "^6.9.1",
+    "openai": "^7.20.0",
     "pmtiles": "^4.5.0",
     "react": "^19.2.8",
     "react-chartjs-2": "^5.3.1",
