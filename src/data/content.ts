@@ -4,7 +4,7 @@ export const IMG = {
   cityCorner: '/imagen%20esquina%20inferior%20ciudad.png',
   heroBackground: '/imagen%20fondo%20superior.png',
   candidateTop: '/imagen%20candidato%20parte%20superior.png',
-  cityTop: '/imagen%20ciudad%20parte%20superior.png',
+  cityTop: '/imagen%20superior%20ciudad%20rea.png',
   map: '/mapa.jpeg',
 } as const
 
