@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   ChevronDown,
   Download,
@@ -128,8 +129,28 @@ export default function ResumenPage() {
     const ya = getYaReportadoStats(todas)
     const categorias = ['Todas', ...Object.keys(porCat)]
 
-    return { total, criticas, porCat, wow, ya, categorias, ordenadas }
+    return { total, criticas, porCat, wow, ya, categorias, ordenadas, porId: new Map(conSector.map((r) => [r.d.id, r])) }
   }, [todas, fCategoria, fParroquia, fGravedad, fRango, orden, busquedaDeb])
+
+  const [params, setParams] = useSearchParams()
+  const reporteParam = params.get('reporte')
+
+  // Apertura profunda: /admin/resumen?reporte=<id> abre el modal (viene del mapa).
+  useEffect(() => {
+    if (!reporteParam) return
+    const row = datos.porId.get(reporteParam)
+    if (!row) return
+    setDetalle((prev) => {
+      if (prev?.d.id === reporteParam) return prev
+      const sector = row.parroquia ? `${row.parroquia} · ${row.sector}` : row.sector
+      return { d: row.d, score: row.score, sector }
+    })
+  }, [reporteParam, datos.porId])
+
+  const cerrarDetalle = () => {
+    setDetalle(null)
+    if (reporteParam) setParams({}, { replace: true })
+  }
 
   const totalPages = Math.max(1, Math.ceil(datos.ordenadas.length / perPage))
   const pagina = datos.ordenadas.slice((page - 1) * perPage, page * perPage)
@@ -457,7 +478,7 @@ export default function ResumenPage() {
           denuncia={detalle.d}
           score={detalle.score}
           sector={detalle.sector}
-          onClose={() => setDetalle(null)}
+          onClose={cerrarDetalle}
         />
       )}
     </PanelPage>

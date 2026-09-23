@@ -140,6 +140,19 @@ export default function HomePage() {
           <Link to="/ingresar">Participar</Link>
         </nav>
         <p className="campaign-footer-copy">© 2026 Escucha Loja · Hecho en Loja</p>
+        <p className="campaign-footer-powered">
+          Impulsado por{' '}
+          <a href="https://etherlab.dev" target="_blank" rel="noopener noreferrer">
+            <svg width="12" height="12" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+              <path d="M20 8 L32 14.5 L32 25.5 L20 32 L8 25.5 L8 14.5 Z" stroke="currentColor" strokeWidth="2" fill="none" strokeLinejoin="round" />
+              <path d="M20 8 L20 32" stroke="currentColor" strokeWidth="1.2" opacity=".35" />
+              <path d="M8 14.5 L32 25.5" stroke="currentColor" strokeWidth="1.2" opacity=".35" />
+              <path d="M32 14.5 L8 25.5" stroke="currentColor" strokeWidth="1.2" opacity=".35" />
+              <circle cx="20" cy="20" r="4" fill="currentColor" />
+            </svg>
+            Etherlab
+          </a>
+        </p>
       </footer>
     </main>
   )

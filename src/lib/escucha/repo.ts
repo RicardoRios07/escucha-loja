@@ -1,16 +1,14 @@
 /**
- * repo.ts — capa de datos contra Neon (vía /api/*). Reemplaza el localStorage.
+ * repo.ts — capa de datos contra Neon (vía /api/*) + evidencia en Vercel Blob.
  * - useReportesPublicos: mapa, comunidad, landing (sin datos personales).
  * - useReportesAdmin: panel admin (con direcciones + contacto del autor).
  * - useMisReportes: reportes propios del vecino en sesión.
- * La evidencia fotográfica sigue en IndexedDB local hasta el storage Blob;
- * se reasocia en memoria por id de reporte.
+ * Nada persiste en el dispositivo: la evidencia sube directo a la nube.
  */
 import { useCallback, useEffect, useState } from 'react'
-import { upload } from '@vercel/blob/client'
 import type { CategoriaId } from './types'
 import type { MvpDenuncia } from './types'
-import { deleteMedia, getMediaBlob, isMediaRef, type MediaRef } from './media'
+import type { MediaRemota } from './media'
 
 const CODE_A_CATEGORIA: Record<string, CategoriaId> = {
   agua: 'Agua Potable, Alcantarillado Sanitario, Alcantarillado Pluvial',
@@ -117,47 +115,11 @@ export interface CrearReporteInput {
   direccionPrincipal: string
   calleSecundaria: string
   referencia: string
-  /** Adjuntos ya validados en IndexedDB; se suben al Blob al crear. */
-  evidencia: MediaRef[]
-  /** Progreso de subida (0..1 por archivo ya subido). */
-  onProgreso?: (subidos: number, total: number) => void
-}
-
-const EXT_POR_MIME: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'video/mp4': 'mp4',
-  'video/webm': 'webm',
-  'video/quicktime': 'mov',
-  'video/3gpp': '3gp',
-  'video/x-m4v': 'm4v',
-}
-
-/** Sube un adjunto local al Blob store (vía token del servidor). */
-async function subirEvidencia(ref: MediaRef): Promise<{ url: string; kind: 'foto' | 'video'; duracion_s: number | null }> {
-  const blob = await getMediaBlob(ref.id)
-  if (!blob) throw new Error('No se encontró la foto/video en este dispositivo. Vuelve a adjuntarla.')
-  const ext = EXT_POR_MIME[ref.mime] ?? (ref.kind === 'foto' ? 'jpg' : 'mp4')
-  const file = new File([blob], `${ref.id}.${ext}`, { type: ref.mime || undefined })
-  const subida = await upload(`evidencia/${ref.id}.${ext}`, file, {
-    access: 'public',
-    handleUploadUrl: '/api/evidencia/token',
-  })
-  return { url: subida.url, kind: ref.kind, duracion_s: ref.duration ? Math.round(ref.duration) : null }
+  /** Adjuntos ya subidos a la nube (ver `subirEvidencia` en media.ts). */
+  evidencia: MediaRemota[]
 }
 
 export async function crearReporte(input: CrearReporteInput): Promise<MvpDenuncia> {
-  // 1) Evidencia al Blob (directo navegador→storage, sin pasar por la Function).
-  const remotas: { url: string; kind: 'foto' | 'video'; duracion_s: number | null }[] = []
-  let i = 0
-  for (const ref of input.evidencia) {
-    if (!isMediaRef(ref)) continue
-    remotas.push(await subirEvidencia(ref))
-    i += 1
-    input.onProgreso?.(i, input.evidencia.length)
-  }
-  // 2) Reporte + vínculos a evidencia en Neon.
   const r = await fetch('/api/reportes', {
     method: 'POST',
     credentials: 'same-origin',
@@ -178,17 +140,28 @@ export async function crearReporte(input: CrearReporteInput): Promise<MvpDenunci
       direccion_principal: input.direccionPrincipal,
       calle_secundaria: input.calleSecundaria,
       referencia: input.referencia,
-      evidencia: remotas,
+      evidencia: input.evidencia.map((e) => ({
+        url: e.url,
+        kind: e.kind,
+        duracion_s: e.duration ? Math.round(e.duration) : null,
+      })),
     }),
   })
   const d = await leerJson(r)
   if (!d.reporte) throw new Error('El servidor no devolvió el reporte creado')
-  // 3) Higiene local: los blobs ya viven en la nube.
-  for (const ref of input.evidencia) {
-    if (isMediaRef(ref)) void deleteMedia(ref.id)
-  }
   invalidarCache()
   return mapearReporte(d.reporte)
+}
+
+/** Borra un blob huérfano del storage (requiere sesión). */
+export async function eliminarEvidencia(url: string): Promise<void> {
+  const r = await fetch('/api/evidencia/token', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'delete', url }),
+  })
+  await leerJson(r)
 }
 
 export async function borrarReporte(id: string): Promise<void> {

@@ -10,6 +10,7 @@ export default function MapaPage() {
   const reports = useMemo<LojaReport[]>(
     () =>
       denuncias.map((d) => ({
+        id: d.id,
         lat: d.lat,
         lng: d.lng,
         categoria: d.categoriaLabel,
@@ -41,7 +42,7 @@ export default function MapaPage() {
                 Cargando reportes…
               </p>
             ) : (
-              <LojaMap3D reports={reports} />
+              <LojaMap3D reports={reports} detalleDestino="admin" />
             )}
           </div>
         </div>

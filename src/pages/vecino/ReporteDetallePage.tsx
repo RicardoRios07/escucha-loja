@@ -4,7 +4,6 @@ import { ArrowLeft, CalendarDays, Check, MapPin, Share2, Trash2 } from 'lucide-r
 import MediaThumb from '../../components/escucha/MediaThumb'
 import { getBarrioAprox } from '../../lib/escucha/store'
 import { borrarReporte, useMisReportes, useReportesPublicos } from '../../lib/escucha/repo'
-import { deleteMedia, isMediaRef } from '../../lib/escucha/media'
 import { categoriaColor, gravedadColor } from '../../lib/escucha/geo'
 import PageBanner from '../../components/escucha/PageBanner'
 
@@ -181,9 +180,6 @@ export default function ReporteDetallePage() {
               if (!window.confirm('¿Eliminar este reporte? Se borrará de tu cuenta con su evidencia.')) return
               setBorrando(true)
               try {
-                for (const item of d.evidencia) {
-                  if (isMediaRef(item)) void deleteMedia(item.id)
-                }
                 await borrarReporte(d.id)
                 recargar()
                 navigate('/vecino/mis-reportes')

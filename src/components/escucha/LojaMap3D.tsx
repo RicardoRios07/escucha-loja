@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 // maplibre-gl se importa solo como tipos aquí: el módulo real se carga diferido
 // (import dinámico) cuando el mapa entra al viewport — ~1MB fuera del camino crítico.
 import type * as maplibregl from 'maplibre-gl'
@@ -7,11 +8,10 @@ import { Building2, Car, ChevronDown, Droplets, Trash2 } from 'lucide-react'
 import 'maplibre-gl/dist/maplibre-gl.css'
 import { Protocol as PmtilesProtocol } from 'pmtiles'
 import { CATEGORIAS_VISUALES, categoriaVisual, gravedadColor } from '../../lib/escucha/geo'
-import { resolverUbicacion } from '../../lib/escucha/store'
-import { PARROQUIAS, PARROQUIA_POR_ID, CANTON_BOUNDS_LL } from '../../data/parroquias'
+import { CANTON_BOUNDS_LL } from '../../data/parroquias'
 import type { CategoriaIconKey } from '../../lib/escucha/geo'
 import type { MediaItem } from '../../lib/escucha/media'
-import { getObjectUrlForRef, isMediaRef, isMediaRemota } from '../../lib/escucha/media'
+import { isMediaRef, isMediaRemota } from '../../lib/escucha/media'
 import { sampleRoofColors } from '../../lib/escucha/roofs'
 import { addCategoryPinSprites } from './mapSprites'
 
@@ -53,6 +53,8 @@ const SAMPLE_CAP = WEAK_DEVICE ? 300 : 700
  */
 
 export type LojaReport = {
+  /** Id de la denuncia (para "Ver detalle"). Ausente en agregados sin id. */
+  id?: string
   lat: number
   lng: number
   categoria: string
@@ -68,6 +70,8 @@ export type LojaReport = {
 
 type PinProps = {
   id: string
+  /** Id de denuncia del primer reporte de la celda ("" si no hay). */
+  reportId: string
   count: number
   intensity: number
   categoria: string
@@ -175,11 +179,10 @@ function fmtFecha(iso: string): string {
   return `${fecha.getDate()} ${MESES_CORTOS[fecha.getMonth()]} ${fecha.getFullYear()} · ${hh}:${mm}`
 }
 
-/** Agrupa reportes por celda (4 decimales) + categoría, respeta filtros y foco parroquial, normaliza intensidad 0..1. */
+/** Agrupa reportes por celda (4 decimales) + categoría, respeta filtros y normaliza intensidad 0..1. */
 function buildPins(
   reports: LojaReport[],
   excluded: Set<string>,
-  focusParroquia: string | null,
 ): { features: ReportFeature[]; mediaById: Map<string, MediaItem> } {
   const grouped = new Map<string, ReportFeature>()
   const mediaById = new Map<string, MediaItem>()
@@ -190,7 +193,6 @@ function buildPins(
     if (!isInsideLoja(lng, lat)) return
     const vis = categoriaVisual(report.categoria)
     if (excluded.has(vis.key)) return
-    if (focusParroquia && resolverUbicacion(lat, lng).parroquia.id !== focusParroquia) return
     const categoria = report.categoria || 'Reporte ciudadano'
     const key = `${lat.toFixed(4)}:${lng.toFixed(4)}:${vis.key}`
     const count = Math.max(1, Number(report.count) || 1)
@@ -204,6 +206,7 @@ function buildPins(
       type: 'Feature',
       properties: {
         id: key,
+        reportId: report.id ?? '',
         count,
         intensity: 0,
         categoria,
@@ -234,7 +237,7 @@ function buildPins(
 }
 
 /** Input del source de clusters: una feature por celda (sin separar por categoría). */
-function buildClusterInput(reports: LojaReport[], excluded: Set<string>, focusParroquia: string | null): ClusterInputFeature[] {
+function buildClusterInput(reports: LojaReport[], excluded: Set<string>): ClusterInputFeature[] {
   const grouped = new Map<string, ClusterInputFeature>()
   reports.forEach((report) => {
     const lat = Number(report.lat)
@@ -242,7 +245,6 @@ function buildClusterInput(reports: LojaReport[], excluded: Set<string>, focusPa
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return
     if (!isInsideLoja(lng, lat)) return
     if (excluded.has(categoriaVisual(report.categoria).key)) return
-    if (focusParroquia && resolverUbicacion(lat, lng).parroquia.id !== focusParroquia) return
     const key = `${lat.toFixed(4)}:${lng.toFixed(4)}`
     const count = Math.max(1, Number(report.count) || 1)
     const current = grouped.get(key)
@@ -266,6 +268,11 @@ type LojaMap3DProps = {
   /** full: clusters + panel de filtros. lite: solo heat + pins (landing). */
   mode?: 'full' | 'lite'
   className?: string
+  /**
+   * Destino del botón "Ver detalle" del popup. Por defecto no se muestra:
+   * 'admin' → /resumen?reporte=<id> (modal), 'vecino' → /vecino/reporte/<id>.
+   */
+  detalleDestino?: 'admin' | 'vecino' | 'ninguno'
 }
 
 export default function LojaMap3D({
@@ -273,8 +280,10 @@ export default function LojaMap3D({
   embedded = true,
   mode = 'full',
   className = '',
+  detalleDestino = 'ninguno',
 }: LojaMap3DProps) {
   const lite = mode === 'lite'
+  const navigate = useNavigate()
   const wrapRef = useRef<HTMLDivElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
@@ -304,15 +313,12 @@ export default function LojaMap3D({
   const [filtros, setFiltros] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(CATEGORIAS_VISUALES.map((c) => [c.key, true])),
   )
-  /** Foco parroquial: click en una parroquia filtra reportes y vuela a su bbox. */
-  const [focusParroquia, setFocusParroquia] = useState<string | null>(null)
-
   const excluded = useMemo(
     () => new Set(CATEGORIAS_VISUALES.filter((c) => !filtros[c.key]).map((c) => c.key)),
     [filtros],
   )
-  const pins = useMemo(() => buildPins(reports, excluded, focusParroquia), [reports, excluded, focusParroquia])
-  const clusterFeatures = useMemo(() => buildClusterInput(reports, excluded, focusParroquia), [reports, excluded, focusParroquia])
+  const pins = useMemo(() => buildPins(reports, excluded), [reports, excluded])
+  const clusterFeatures = useMemo(() => buildClusterInput(reports, excluded), [reports, excluded])
   const totalAportes = useMemo(
     () => reports.reduce((total, report) => total + Math.max(1, Math.round(report.count || 1)), 0),
     [reports],
@@ -403,6 +409,10 @@ export default function LojaMap3D({
       desc ? `<div class="loja-map-card-desc">${desc}</div>` : '',
       date ? `<div class="loja-map-card-date">${esc(date)}</div>` : '',
     ].join('')
+    const verDetalle =
+      detalleDestino !== 'ninguno' && props.reportId
+        ? `<button type="button" class="loja-map-report-btn" data-reporte="${esc(props.reportId)}">Ver detalle</button>`
+        : ''
 
     cardPopup
       .setLngLat(lngLat)
@@ -414,10 +424,23 @@ export default function LojaMap3D({
             `<div class="loja-map-card-title">${title}</div>` +
             meta +
             `<div class="loja-map-card-count">${props.count} ${props.count === 1 ? 'reporte' : 'reportes'} en este punto</div>` +
+            verDetalle +
           `</div>` +
         `</div>`,
       )
       .addTo(map)
+
+    // "Ver detalle": el popup es HTML crudo, se cablea por delegación.
+    if (verDetalle) {
+      const btn = cardPopup.getElement()?.querySelector<HTMLButtonElement>('.loja-map-report-btn')
+      btn?.addEventListener('click', () => {
+        const id = btn.dataset.reporte
+        if (!id) return
+        cardPopup.remove()
+        if (detalleDestino === 'vecino') navigate(`/vecino/reporte/${encodeURIComponent(id)}`)
+        else navigate(`/admin/resumen?reporte=${encodeURIComponent(id)}`)
+      })
+    }
 
     // Resolve la evidencia (IndexedDB/dataURL) después de montar el popup.
     const media = mediaByIdRef.current.get(props.id)
@@ -432,11 +455,8 @@ export default function LojaMap3D({
       putImage(media)
     } else if (isMediaRemota(media)) {
       if (media.kind === 'foto') putImage(media.url)
-    } else if (media.kind === 'foto') {
-      getObjectUrlForRef(media).then((url) => {
-        if (url) putImage(url)
-      })
     }
+    // Nota: MediaRef heredadas ya no se crean; si apareciera una, no hay foto.
   }
 
   // Carga diferida: el módulo de maplibre (~1MB) y el mapa solo inicializan
@@ -675,16 +695,6 @@ export default function LojaMap3D({
             'line-dasharray': [3, 1.6],
           },
         })
-        // Hit areas invisibles para click (las líneas son difíciles de tocar).
-        for (const [hitId, layer] of [['parroquias-rurales-hit', 'rurales'], ['parroquias-urbanas-hit', 'urbanas']] as const) {
-          map.addLayer({
-            id: hitId,
-            type: 'fill',
-            source: 'territorio',
-            'source-layer': layer,
-            paint: { 'fill-color': '#ffffff', 'fill-opacity': 0 },
-          })
-        }
         // Etiquetas desde centroides puntuales (los símbolos sobre polígonos se
         // duplican cuando el polígono cruza bordes de tile; los puntos, nunca).
         map.addLayer({
@@ -766,47 +776,6 @@ export default function LojaMap3D({
           },
           paint: { 'text-color': '#ffffff', 'text-halo-color': 'rgba(0,0,0,0.75)', 'text-halo-width': 1.4 },
         })
-
-        // Click en parroquia: foco (filtra reportes) + vuelo a su bbox.
-        // Si el click también tocó un pin/burbuja/cluster, ese handler manda
-        // (si no, abrir un popup filtraría el resto de reportes).
-        const focusByNombre = (nombre: unknown, point?: { x: number; y: number }) => {
-          if (typeof nombre !== 'string') return
-          if (point) {
-            let ocupados: unknown[] = []
-            try {
-              // Caja con tolerancia (el click de maplibre usa clickTolerance;
-              // el ancla del pin no siempre tiene píxel del icono encima).
-              const a = new maplibregl.Point(point.x - 8, point.y - 8)
-              const b = new maplibregl.Point(point.x + 8, point.y + 8)
-              ocupados = map.queryRenderedFeatures([a, b], {
-                layers: ['reports-pins', 'reports-pins-fallback', 'cluster-bubbles', 'cluster-counts'],
-              })
-            } catch {
-              /* mapa aún sin esas capas */
-            }
-            if (ocupados.length > 0) return
-          }
-          const p = PARROQUIAS.find((x) => x.nombre === nombre)
-          if (!p) return
-          setFocusParroquia(p.id)
-          map.flyTo({
-            center: [p.centro[1], p.centro[0]],
-            zoom: p.tipo === 'rural' ? 12 : 14,
-            duration: 900,
-          })
-        }
-        for (const hitId of ['parroquias-rurales-hit', 'parroquias-urbanas-hit'] as const) {
-          map.on('mouseenter', hitId, () => {
-            map.getCanvas().style.cursor = 'pointer'
-          })
-          map.on('mouseleave', hitId, () => {
-            map.getCanvas().style.cursor = ''
-          })
-          map.on('click', hitId, (event) => {
-            focusByNombre(event.features?.[0]?.properties?.nombre, event.point)
-          })
-        }
       } catch {
         /* Estilo sin capa de edificios: el mapa sigue funcionando. */
       }
@@ -1110,17 +1079,6 @@ export default function LojaMap3D({
       <div className="loja-map-hud">
         <div className="loja-map-top-row">
           {!lite && <div className="loja-map-status-pill">{totalAportes} aportes registrados</div>}
-          {focusParroquia && (
-            <button
-              type="button"
-              className="loja-map-focus-pill"
-              onClick={() => setFocusParroquia(null)}
-              title="Quitar filtro de parroquia"
-              aria-label={`Quitar filtro: ${PARROQUIA_POR_ID[focusParroquia]?.nombre ?? 'parroquia'}`}
-            >
-              {PARROQUIA_POR_ID[focusParroquia]?.nombre ?? 'Parroquia'}&nbsp;×
-            </button>
-          )}
           <div className="loja-map-toggles">
             <button className="loja-map-toggle" type="button" disabled={busy === 'location'} onClick={handleUseLocation}>
               Usar ubicación actual

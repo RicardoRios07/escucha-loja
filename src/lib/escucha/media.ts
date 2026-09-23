@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { upload } from '@vercel/blob/client'
 
-/** Límites de evidencia por reporte (Fase 2: foto o video corto). */
+/** Límites de evidencia por reporte (foto o video corto, directo a la nube). */
 export const MAX_MEDIA_FILES = 3
 export const MAX_VIDEO_SECONDS = 10
 export const MAX_FILE_BYTES = 25 * 1024 * 1024 // 25 MB por archivo
@@ -18,13 +18,15 @@ export interface MediaRef {
   createdAt: string // ISO
 }
 
-/** Un adjunto puede ser un dataURL heredado (string), una referencia a IndexedDB o una URL remota (Vercel Blob). */
+/** Un adjunto puede ser un dataURL heredado (string) o una URL remota (Vercel Blob). */
 export type MediaItem = string | MediaRef | MediaRemota
 
 export interface MediaRemota {
   remoto: true
   kind: 'foto' | 'video'
   url: string
+  /** Duración en segundos (solo video). */
+  duration?: number
 }
 
 export function isMediaRef(item: MediaItem): item is MediaRef {
@@ -35,190 +37,43 @@ export function isMediaRemota(item: MediaItem): item is MediaRemota {
   return typeof item !== 'string' && (item as MediaRemota).remoto === true
 }
 
-// ---------- IndexedDB ----------
+// ---------- Subida directa a la nube (sin almacenamiento local) ----------
 
-const DB_NAME = 'escucha-loja'
-const DB_VERSION = 2
-const STORE_MEDIA = 'media'
-export const STORE_IA = 'ia'
-
-let dbPromise: Promise<IDBDatabase> | null = null
-
-export function openDb(): Promise<IDBDatabase> {
-  if (typeof window === 'undefined') return Promise.reject(new Error('Sin ventana'))
-  if (dbPromise) return dbPromise
-  dbPromise = new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, DB_VERSION)
-    req.onupgradeneeded = () => {
-      const db = req.result
-      if (!db.objectStoreNames.contains(STORE_MEDIA)) {
-        db.createObjectStore(STORE_MEDIA, { keyPath: 'id' })
-      }
-      if (!db.objectStoreNames.contains(STORE_IA)) {
-        db.createObjectStore(STORE_IA, { keyPath: 'id' })
-      }
-    }
-    req.onsuccess = () => resolve(req.result)
-    req.onerror = () => {
-      dbPromise = null
-      reject(req.error ?? new Error('No se pudo abrir la base local'))
-    }
-  })
-  return dbPromise
+const EXT_POR_MIME: Record<string, string> = {
+  'image/jpeg': 'jpg',
+  'image/png': 'png',
+  'image/webp': 'webp',
+  'video/mp4': 'mp4',
+  'video/webm': 'webm',
+  'video/quicktime': 'mov',
+  'video/3gpp': '3gp',
+  'video/x-m4v': 'm4v',
 }
 
-/** Transaction genérica sobre cualquier store de la base local (media, ia, ...). */
-export function idbStore<T>(
-  store: string,
-  mode: IDBTransactionMode,
-  run: (s: IDBObjectStore) => IDBRequest<T>,
-): Promise<T> {
-  return openDb().then(
-    (db) =>
-      new Promise<T>((resolve, reject) => {
-        const t = db.transaction(store, mode)
-        const s = t.objectStore(store)
-        let req: IDBRequest<T>
-        try {
-          req = run(s)
-        } catch (e) {
-          reject(e)
-          return
-        }
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => reject(req.error ?? new Error('Error de almacenamiento local'))
-      }),
-  )
-}
-
-interface MediaRecord {
-  id: string
-  blob: Blob
-  meta: MediaRef
-}
-
-function tx<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
-  return openDb().then(
-    (db) =>
-      new Promise<T>((resolve, reject) => {
-        const t = db.transaction(STORE_MEDIA, mode)
-        const store = t.objectStore(STORE_MEDIA)
-        let req: IDBRequest<T>
-        try {
-          req = run(store)
-        } catch (e) {
-          reject(e)
-          return
-        }
-        req.onsuccess = () => resolve(req.result)
-        req.onerror = () => reject(req.error ?? new Error('Error de almacenamiento local'))
-      }),
-  )
-}
-
-function newId(): string {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
-  return `m_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
-}
-
-/** Guarda un blob y devuelve su referencia (metadatos para localStorage). */
-export async function putMedia(
-  blob: Blob,
+/**
+ * Sube un archivo validado al Blob store y devuelve su referencia remota.
+ * Nada queda en el dispositivo: el navegador envía directo a la nube.
+ */
+export async function subirEvidencia(
+  file: File,
   kind: 'foto' | 'video',
   duration?: number,
-): Promise<MediaRef> {
-  const meta: MediaRef = {
-    id: newId(),
-    kind,
-    mime: blob.type || (kind === 'foto' ? 'image/jpeg' : 'video/mp4'),
-    size: blob.size,
-    duration,
-    createdAt: new Date().toISOString(),
-  }
-  try {
-    await tx('readwrite', (s) => s.put({ id: meta.id, blob, meta } satisfies MediaRecord))
-  } catch {
-    throw new Error('No hay espacio suficiente en este dispositivo para guardar la evidencia')
-  }
-  return meta
-}
-
-export async function getMediaBlob(id: string): Promise<Blob | null> {
-  try {
-    const rec = await tx<MediaRecord | undefined>('readonly', (s) => s.get(id))
-    return rec?.blob ?? null
-  } catch {
-    return null
-  }
-}
-
-export async function deleteMedia(id: string): Promise<void> {
-  try {
-    await tx('readwrite', (s) => s.delete(id))
-  } catch {
-    /* noop: mejor esfuerzo */
-  }
-  revokeObjectUrl(id)
-}
-
-/** Borra blobs que ya no referencia ningún reporte (higiene de cuota). */
-export async function sweepMedia(keepIds: string[]): Promise<void> {
-  try {
-    const keys = await tx<IDBValidKey[]>('readonly', (s) => s.getAllKeys())
-    const keep = new Set(keepIds)
-    await Promise.all(
-      keys.map(String).filter((k) => !keep.has(k)).map((k) => deleteMedia(k)),
-    )
-  } catch {
-    /* noop */
-  }
-}
-
-// ---------- Object URLs (caché en memoria) ----------
-
-const urlCache = new Map<string, string>()
-
-export async function getObjectUrlForRef(ref: MediaRef): Promise<string | null> {
-  const cached = urlCache.get(ref.id)
-  if (cached) return cached
-  const blob = await getMediaBlob(ref.id)
-  if (!blob) return null
-  const url = URL.createObjectURL(blob)
-  urlCache.set(ref.id, url)
-  return url
-}
-
-export function revokeObjectUrl(id: string) {
-  const url = urlCache.get(id)
-  if (url) {
-    URL.revokeObjectURL(url)
-    urlCache.delete(id)
-  }
+): Promise<MediaRemota> {
+  const ext = EXT_POR_MIME[file.type] ?? (kind === 'foto' ? 'jpg' : 'mp4')
+  const nombre = `${crypto.randomUUID()}.${ext}`
+  const subida = await upload(`evidencia/${nombre}`, file, {
+    access: 'public',
+    handleUploadUrl: '/api/evidencia/token',
+  })
+  return { remoto: true, kind, url: subida.url, duration }
 }
 
 /** Hook: resuelve un MediaItem a URL usable en <img>/<video>. */
 export function useMediaUrl(item: MediaItem | null | undefined): string | null {
-  const [url, setUrl] = useState<string | null>(
-    typeof item === 'string' ? item : item && isMediaRemota(item) ? item.url : null,
-  )
-  useEffect(() => {
-    if (!item || typeof item === 'string') {
-      setUrl(typeof item === 'string' ? item : null)
-      return
-    }
-    if (isMediaRemota(item)) {
-      setUrl(item.url)
-      return
-    }
-    let alive = true
-    getObjectUrlForRef(item).then((u) => {
-      if (alive) setUrl(u)
-    })
-    return () => {
-      alive = false
-    }
-  }, [item])
-  return url
+  if (!item) return null
+  if (typeof item === 'string') return item
+  if (isMediaRemota(item)) return item.url
+  return null
 }
 
 // ---------- Validación ----------
