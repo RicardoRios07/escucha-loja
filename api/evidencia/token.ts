@@ -3,9 +3,12 @@
  * Requiere sesión Google con onboarding completo. Devuelve el client token
  * para que el navegador suba directo al store (evita el límite de 4.5 MB
  * de las Functions con videos de hasta 25 MB).
+ *
+ * Con body { action: 'delete', url } borra un blob huérfano propio.
  */
+import { del } from '@vercel/blob'
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client'
-import { baseUrl, currentUser, type ApiReq, type ApiRes } from '../_lib.js'
+import { baseUrl, currentUser, esUrlBlobPropia, type ApiReq, type ApiRes } from '../_lib.js'
 
 const MAX_BYTES = 25 * 1024 * 1024
 const ALLOWED = [
@@ -39,7 +42,17 @@ export default async function handler(req: ApiReq, res: ApiRes) {
       res.status(503).json({ error: 'Storage de evidencia no configurado.' })
       return
     }
-    const body = req.body as HandleUploadBody
+    const body = req.body as HandleUploadBody & { action?: unknown; url?: unknown }
+    // Borrado de huérfanos (quitar un adjunto antes de enviar).
+    if (body.action === 'delete') {
+      if (typeof body.url !== 'string' || !esUrlBlobPropia(body.url)) {
+        res.status(400).json({ error: 'URL inválida.' })
+        return
+      }
+      await del(body.url)
+      res.status(200).json({ ok: true })
+      return
+    }
     const host =
       (req.headers['x-forwarded-host'] as string) || (req.headers.host as string) || ''
     const request = new Request(`${baseUrl(req)}/api/evidencia/token`, {

@@ -1,4 +1,5 @@
 /** DELETE /api/reportes?id= — elimina un reporte propio (o cualquiera si admin). */
+import { del } from '@vercel/blob'
 import { currentUser, db, rowsOf, type ApiReq, type ApiRes } from '../_lib.js'
 
 export default async function handler(req: ApiReq, res: ApiRes) {
@@ -17,6 +18,10 @@ export default async function handler(req: ApiReq, res: ApiRes) {
       res.status(400).json({ error: 'Falta id.' })
       return
     }
+    // URLs primero: el delete arrastra las filas por cascade.
+    const evPrevias = rowsOf<{ storage_url: string }>(
+      await db().query('select storage_url from evidencias where reporte_id = $1', [q]),
+    ).map((e) => e.storage_url)
     const borrados = rowsOf<{ id: string }>(
       await db().query(
         `delete from reportes where id = $1 and ($2 = 'admin' or user_id = $3) returning id`,
@@ -26,6 +31,10 @@ export default async function handler(req: ApiReq, res: ApiRes) {
     if (borrados.length === 0) {
       res.status(404).json({ error: 'Reporte no encontrado.' })
       return
+    }
+    // Limpieza best-effort de los blobs (no bloquea la respuesta).
+    if (evPrevias.length > 0) {
+      void del(evPrevias).catch(() => {})
     }
     res.status(200).json({ ok: true })
   } catch (e) {

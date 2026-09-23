@@ -9,9 +9,10 @@ import { PARROQUIAS, CANTON_BOUNDS } from "../../data/parroquias"
 import { gravedadColor } from "../../lib/escucha/geo"
 import type { CategoriaId, Gravedad, Frecuencia, TiempoProblema, MvpDenuncia } from "../../lib/escucha/types"
 import {
-  MAX_MEDIA_FILES, MAX_VIDEO_SECONDS, deleteMedia, getVideoDuration,
-  putMedia, validateMediaFile, type MediaRef,
+  MAX_MEDIA_FILES, MAX_VIDEO_SECONDS, getVideoDuration,
+  validateMediaFile, subirEvidencia, isMediaRemota, type MediaRemota,
 } from "../../lib/escucha/media"
+import { eliminarEvidencia } from "../../lib/escucha/repo"
 import PageBanner from "./PageBanner"
 import MediaThumb from "./MediaThumb"
 import VideoRecorder from "./VideoRecorder"
@@ -24,17 +25,15 @@ import {
 } from "react-icons/ri"
 const ComplaintMap = lazy(() => import("./ComplaintMap"))
 
-/** Modal de salida honesto: guardar conserva el borrador, descartar lo borra. */
+/** Modal de salida: sin borrador local, salir descarta lo no enviado. */
 function ConfirmarSalida({
   completados,
   onSeguir,
-  onGuardarSalir,
-  onDescartar,
+  onSalir,
 }: {
   completados: string[]
   onSeguir: () => void
-  onGuardarSalir: () => void
-  onDescartar: () => void
+  onSalir: () => void
 }) {
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 p-4">
@@ -51,7 +50,7 @@ function ConfirmarSalida({
           ¿Salir del formulario?
         </h4>
         <p className="mt-1 text-sm text-gray-600">
-          Llevas {completados.length} de 5 pasos. Tu progreso queda guardado y podrás retomarlo.
+          Llevas {completados.length} de 5 pasos. Si sales ahora, se perderá lo no enviado.
         </p>
         {completados.length > 0 && (
           <ul className="mt-3 flex flex-wrap gap-1.5" aria-label="Avance guardado">
@@ -64,22 +63,16 @@ function ConfirmarSalida({
         )}
         <div className="mt-5 flex flex-col gap-2">
           <button
-            onClick={onGuardarSalir}
-            className="min-h-[52px] w-full rounded-2xl bg-[#002693] font-extrabold text-white active:scale-[0.98]"
-          >
-            Guardar y salir
-          </button>
-          <button
             onClick={onSeguir}
-            className="min-h-[52px] w-full rounded-2xl border-2 border-black/10 font-bold text-[#111] hover:bg-gray-50 active:scale-[0.98]"
+            className="min-h-[52px] w-full rounded-2xl bg-[#002693] font-extrabold text-white active:scale-[0.98]"
           >
             Seguir aquí
           </button>
           <button
-            onClick={onDescartar}
-            className="min-h-[44px] w-full rounded-xl text-[13px] font-bold text-[#ef4444]/80 hover:bg-red-50 active:scale-[0.98]"
+            onClick={onSalir}
+            className="min-h-[52px] w-full rounded-2xl border-2 border-black/10 font-bold text-[#111] hover:bg-gray-50 active:scale-[0.98]"
           >
-            Descartar todo
+            Salir sin guardar
           </button>
         </div>
       </div>
@@ -95,8 +88,6 @@ const categories = [
 ]
 
 
-// v3: el reporte se crea en Neon; los borradores v2 quedan invalidados a propósito.
-const DRAFT_KEY = "escucha-loja-draft-v3"
 const TOTAL_STEPS = 5
 const STEP_NAMES = ["Categoría", "Ubicación", "Evidencia", "Encuesta", "Revisar"]
 const STEP_META = [
@@ -128,7 +119,7 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
     afectaSalud: false,
     yaReportado: false,
     descripcion: "",
-    media: [] as MediaRef[],
+    media: [] as MediaRemota[],
   })
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -158,13 +149,6 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
   const showConfirmCloseRef = useRef(showConfirmClose)
   showConfirmCloseRef.current = showConfirmClose
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(DRAFT_KEY)
-      if (raw) {
-        const d = JSON.parse(raw)
-        if (d && d.categoryId) setFormData(p => ({ ...p, ...d, media: Array.isArray(d.media) ? d.media : [], ubicacionConfirmada: d.ubicacionConfirmada === true }))
-      }
-    } catch {}
     triggerRef.current = document.activeElement as HTMLElement
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
@@ -183,12 +167,6 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
     return () => document.removeEventListener("keydown", onKey)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  // Guardar borrador (solo metadatos: las refs de medios son JSON serializable)
-  useEffect(() => {
-    const toSave = { ...formData }
-    try { localStorage.setItem(DRAFT_KEY, JSON.stringify(toSave)) } catch {}
-  }, [formData])
 
   // Focus trap
   useEffect(() => {
@@ -210,12 +188,10 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
     return () => el.removeEventListener("keydown", handler as any)
   }, [step])
 
-  const clearDraft = () => { try { localStorage.removeItem(DRAFT_KEY) } catch {} }
-
   const handleRequestClose = () => {
     const hasData = formData.categoryId || formData.descripcion || formData.media.length > 0
     if (hasData && step < TOTAL_STEPS) setShowConfirmClose(true)
-    else { clearDraft(); onCancel(); triggerRef.current?.focus() }
+    else { onCancel(); triggerRef.current?.focus() }
   }
 
   const handleCategory = (id: CategoriaId) => setFormData(p => ({ ...p, categoryId: id }))
@@ -262,9 +238,7 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
         calleSecundaria: formData.calleSecundaria,
         referencia: formData.referencia,
         evidencia: formData.media,
-        onProgreso: (i, n) => setProgressFeedback(`Subiendo evidencia ${i}/${n}…`),
       })
-      clearDraft()
       setSnackbar({ show: true, msg: "¡Gracias por alzar tu voz! Tu aporte fue registrado.", type: "success" })
       setTimeout(() => { setSnackbar({ show: false, msg: "", type: "success" }); onComplete(creada.id, creada); triggerRef.current?.focus() }, 1800)
     } catch (e: any) {
@@ -276,7 +250,7 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
     }
   }
 
-  // ---------- Evidencia (foto o video ≤10s, máx 3, en IndexedDB) ----------
+  // ---------- Evidencia: se sube directo a la nube al adjuntar ----------
 
   const stageFiles = async (files: FileList | File[]) => {
     setUploadError(null)
@@ -287,22 +261,23 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
       return
     }
     setIsProcessingMedia(true)
+    setProgressFeedback('Subiendo evidencia…')
     let firstError: string | null = null
-    const staged: MediaRef[] = []
+    const staged: MediaRemota[] = []
     for (const f of arr) {
       const check = await validateMediaFile(f)
       if (!check.ok || !check.kind) { firstError = firstError || check.error || "Archivo no válido"; continue }
       try {
         const duration = check.kind === "video" ? await getVideoDuration(f) : undefined
-        const ref = await putMedia(f, check.kind, duration)
-        staged.push(ref)
+        staged.push(await subirEvidencia(f, check.kind, duration))
       } catch (e) {
-        firstError = firstError || (e instanceof Error ? e.message : "No se pudo guardar el archivo")
+        firstError = firstError || (e instanceof Error ? e.message : "No se pudo subir el archivo")
       }
     }
     if (firstError) setUploadError(firstError)
     if (staged.length) setFormData(p => ({ ...p, media: [...p.media, ...staged].slice(0, MAX_MEDIA_FILES) }))
     setIsProcessingMedia(false)
+    setProgressFeedback('')
     if (fileInputRef.current) fileInputRef.current.value = ""
     if (photoInputRef.current) photoInputRef.current.value = ""
   }
@@ -313,8 +288,8 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
 
   const removeMedia = (i: number) => {
     setFormData(p => {
-      const ref = p.media[i]
-      if (ref) void deleteMedia(ref.id)
+      const item = p.media[i]
+      if (item && isMediaRemota(item)) void eliminarEvidencia(item.url).catch(() => {})
       return { ...p, media: p.media.filter((_, idx) => idx !== i) }
     })
   }
@@ -643,7 +618,7 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
                 {formData.media.length > 0 && (
                   <div className="grid grid-cols-3 gap-3" role="list" aria-label="Evidencia adjunta">
                     {formData.media.map((ref, i) => (
-                      <div key={ref.id} role="listitem" className="relative aspect-[4/3] rounded-xl overflow-hidden border bg-gray-100">
+                      <div key={`ev-${i}`} role="listitem" className="relative aspect-[4/3] rounded-xl overflow-hidden border bg-gray-100">
                         <MediaThumb item={ref} alt={`Evidencia ${i + 1} de ${formData.media.length}`} className="h-full w-full object-cover" />
                         {ref.kind === "video" && (
                           <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/70 px-2 py-0.5 text-[11px] font-black text-white tabular-nums">
@@ -870,7 +845,7 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
                   <p className="text-xs font-bold uppercase tracking-wide text-gray-400 mb-2">Evidencia</p>
                   <div className="grid grid-cols-3 gap-3">
                     {formData.media.map((ref, i) => (
-                      <div key={ref.id} className="relative aspect-[4/3] rounded-xl overflow-hidden border bg-gray-100">
+                      <div key={`ev-${i}`} className="relative aspect-[4/3] rounded-xl overflow-hidden border bg-gray-100">
                         <MediaThumb item={ref} alt={`Evidencia ${i + 1}`} className="h-full w-full object-cover" />
                         {ref.kind === "video" && (
                           <span className="absolute bottom-1.5 left-1.5 rounded-full bg-black/70 px-2 py-0.5 text-[11px] font-black text-white tabular-nums">
@@ -928,8 +903,7 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
               step >= 4 ? 'Valoración' : null,
             ].filter((x): x is string => !!x)}
             onSeguir={() => setShowConfirmClose(false)}
-            onGuardarSalir={() => { setShowConfirmClose(false); onCancel(); triggerRef.current?.focus() }}
-            onDescartar={() => { setShowConfirmClose(false); clearDraft(); onCancel(); triggerRef.current?.focus() }}
+            onSalir={() => { setShowConfirmClose(false); onCancel(); triggerRef.current?.focus() }}
           />
         )}
       </div>

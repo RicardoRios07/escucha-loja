@@ -19,6 +19,7 @@ export default function ComunidadPage() {
     const top = Object.entries(stats.porCategoria).sort((a, b) => (b[1] as number) - (a[1] as number))[0]
     const recientes = [...denuncias].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     const reports: LojaReport[] = denuncias.map((d) => ({
+      id: d.id,
       lat: d.lat,
       lng: d.lng,
       categoria: d.categoriaLabel,
@@ -48,7 +49,7 @@ export default function ComunidadPage() {
         <div>
           <section aria-label="Mapa de la comunidad" className="mt-4">
             <div className="relative h-[360px] overflow-hidden rounded-2xl border shadow-sm lg:h-[480px]">
-              <LojaMap3D reports={reports} />
+              <LojaMap3D reports={reports} detalleDestino="vecino" />
             </div>
           </section>
 

@@ -1,9 +1,8 @@
-import { idbStore, STORE_IA } from './media'
 import type { LecturaUnificada } from './analisis'
 import type { MvpDenuncia } from './types'
 
 /**
- * Cache de la lectura única de IA en IndexedDB (store 'ia', un solo slot 'snapshot')
+ * Cache de la lectura única de IA en Neon (un solo slot global 'snapshot')
  * + fingerprint de los datos para decidir cuándo re-llamar (y no gastar).
  */
 
@@ -52,29 +51,34 @@ export function fingerprintDenuncias(denuncias: MvpDenuncia[]): string {
   return `fp_${hash.toString(16).padStart(8, '0')}_${denuncias.length}`
 }
 
-// Fallback en memoria si IndexedDB no está disponible (modo privado, etc.).
-let memSnap: IASnapshot | null = null
-
 export async function cargaSnapshotIA(): Promise<IASnapshot | null> {
   try {
-    const snap = await idbStore<IASnapshot | undefined>(STORE_IA, 'readonly', (s) => s.get('snapshot'))
-    if (!esLecturaValida(snap ?? null)) {
-      memSnap = null
-      return null
-    }
-    memSnap = snap as IASnapshot
-    return snap as IASnapshot
+    const r = await fetch('/api/admin/analisis', { credentials: 'same-origin' })
+    if (r.status === 404) return null
+    if (!r.ok) return null
+    const d = (await r.json()) as { snapshot: IASnapshot | null }
+    if (!esLecturaValida(d.snapshot)) return null
+    return d.snapshot
   } catch {
-    return memSnap
+    return null
   }
 }
 
 export async function guardaSnapshotIA(s: IASnapshot): Promise<void> {
-  memSnap = s
   try {
-    await idbStore(STORE_IA, 'readwrite', (st) => st.put(s))
+    await fetch('/api/admin/analisis', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        version: s.version,
+        fingerprint: s.fingerprint,
+        aportesCount: s.aportesCount,
+        resultado: s.resultado,
+      }),
+    })
   } catch {
-    /* la memoria ya guardó el fallback */
+    /* best-effort: se regenera en la próxima visita */
   }
 }
 
