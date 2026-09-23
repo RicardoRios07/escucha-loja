@@ -69,7 +69,7 @@ export default function HomePage() {
           <h1>¿Qué necesita<br />{' '}<span>tu barrio?</span><br />{' '}Cuéntalo.</h1>
           <p>Tu opinión hace la diferencia. Comparte lo que ves, lo que falta y lo que podemos mejorar juntos.</p>
           <div className="campaign-actions">
-            <Link to="/ingresar" className="campaign-button campaign-button-orange"><Megaphone size={17} /> Quiero participar <ArrowRight size={17} /></Link>
+            <Link to="/ingresar" className="campaign-button campaign-button-orange"><Megaphone size={17} /> Quiero reportar <ArrowRight size={17} /></Link>
             <a href="#mapa" className="campaign-button campaign-button-white"><Map size={17} /> Ver mapa de la ciudad</a>
           </div>
         </div>
