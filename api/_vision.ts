@@ -191,8 +191,12 @@ export async function validarFotosIA(fotos: { url: string }[]): Promise<void> {
       if (esArteOIA) throw new Error(mensajeRechazo(nombre))
     })
   } catch (err) {
-    // Fail-open (guía §10): errores de Vision se loguean y las fotos pasan.
-    if (err instanceof Error && !err.message.includes('rechazado')) console.error('validación de imagen con Google Vision:', err)
-    throw err
+    // Fail-open (guía §10): solo los rechazos duros bloquean. Los errores de
+    // infraestructura (Vision caído, key inválida, timeouts) se loguean y las
+    // fotos pasan: nunca se muestra al vecino un mensaje técnico.
+    const msg = err instanceof Error ? err.message : String(err)
+    const esRechazo = /rechazado|no permitido/.test(msg)
+    if (!esRechazo) console.error('validación de imagen con Google Vision (fail-open):', msg)
+    if (esRechazo) throw err
   }
 }
