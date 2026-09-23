@@ -18,11 +18,21 @@ export interface MediaRef {
   createdAt: string // ISO
 }
 
-/** Un adjunto puede ser un dataURL heredado (string) o una referencia a IndexedDB. */
-export type MediaItem = string | MediaRef
+/** Un adjunto puede ser un dataURL heredado (string), una referencia a IndexedDB o una URL remota (Vercel Blob). */
+export type MediaItem = string | MediaRef | MediaRemota
+
+export interface MediaRemota {
+  remoto: true
+  kind: 'foto' | 'video'
+  url: string
+}
 
 export function isMediaRef(item: MediaItem): item is MediaRef {
-  return typeof item !== 'string'
+  return typeof item !== 'string' && (item as MediaRemota).remoto !== true
+}
+
+export function isMediaRemota(item: MediaItem): item is MediaRemota {
+  return typeof item !== 'string' && (item as MediaRemota).remoto === true
 }
 
 // ---------- IndexedDB ----------
@@ -188,10 +198,16 @@ export function revokeObjectUrl(id: string) {
 
 /** Hook: resuelve un MediaItem a URL usable en <img>/<video>. */
 export function useMediaUrl(item: MediaItem | null | undefined): string | null {
-  const [url, setUrl] = useState<string | null>(typeof item === 'string' ? item : null)
+  const [url, setUrl] = useState<string | null>(
+    typeof item === 'string' ? item : item && isMediaRemota(item) ? item.url : null,
+  )
   useEffect(() => {
     if (!item || typeof item === 'string') {
       setUrl(typeof item === 'string' ? item : null)
+      return
+    }
+    if (isMediaRemota(item)) {
+      setUrl(item.url)
       return
     }
     let alive = true

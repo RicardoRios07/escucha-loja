@@ -18,12 +18,11 @@ import {
 import { PanelCard, PanelPage } from '../../components/escucha/PanelPage'
 import { generateAnalysis, type AnalysisReport, type LecturaUnificada } from '../../lib/escucha/analisis'
 import {
-  ensureSeed,
   getClusters,
   getDailySeries,
-  getDenuncias,
   getScoredDenuncias,
 } from '../../lib/escucha/store'
+import { useReportesAdmin } from '../../lib/escucha/repo'
 import { LLMProvider } from '../../lib/escucha/llmProvider'
 import {
   cargaSnapshotIA,
@@ -41,13 +40,7 @@ interface Contexto {
   fp: string
 }
 
-function computeContexto(): Contexto {
-  try {
-    ensureSeed()
-  } catch {
-    /* noop */
-  }
-  const denuncias = getDenuncias()
+function computeContexto(denuncias: MvpDenuncia[]): Contexto {
   const clusters = getClusters(denuncias)
   return {
     denuncias,
@@ -58,7 +51,8 @@ function computeContexto(): Contexto {
 
 export default function AnalisisPage() {
   const [verSectores, setVerSectores] = useState(false)
-  const [ctx, setCtx] = useState<Contexto>(computeContexto)
+  const { datos: denuncias, cargando, error } = useReportesAdmin()
+  const [ctx, setCtx] = useState<Contexto>(() => computeContexto([]))
   const [snapshotIA, setSnapshotIA] = useState<IASnapshot | null>(null)
   const llmRef = useRef<LLMProvider | null>(null)
 
@@ -68,14 +62,8 @@ export default function AnalisisPage() {
   }
 
   useEffect(() => {
-    const refresca = () => setCtx(computeContexto())
-    window.addEventListener('storage', refresca)
-    window.addEventListener('focus', refresca)
-    return () => {
-      window.removeEventListener('storage', refresca)
-      window.removeEventListener('focus', refresca)
-    }
-  }, [])
+    setCtx(computeContexto(denuncias))
+  }, [denuncias])
 
   useEffect(() => {
     let alive = true
@@ -124,7 +112,7 @@ export default function AnalisisPage() {
   const lectura: LecturaUnificada = snapshotIA?.resultado ?? reporte.lectura
   const conIA = snapshotIA !== null
   const criticalCount = ctx.denuncias.filter((d) => d.encuesta.gravedad === 'Crítica').length
-  const movilidadCount = ctx.denuncias.filter((d) => d.categoriaLabel === 'Movilidad').length
+  const movilidadCount = ctx.denuncias.filter((d) => d.categoriaLabel === 'Movilidad Urbana').length
   const movilidadPct = ctx.denuncias.length ? Math.round((movilidadCount / ctx.denuncias.length) * 100) : 0
 
   const graveOrd: Record<string, number> = { Baja: 1, Media: 2, Alta: 3, Crítica: 4 }
@@ -189,20 +177,10 @@ export default function AnalisisPage() {
   ).sort((a, b) => b[1] - a[1])
 
   const pieCategories = [
-    { label: 'Movilidad', value: categoryTotals.find(([cat]) => cat === 'Movilidad')?.[1] ?? 0, color: '#002693' },
-    { label: 'Recolección', value: categoryTotals.find(([cat]) => cat === 'Recolección')?.[1] ?? 0, color: '#fe4102' },
-    { label: 'Agua', value: categoryTotals.find(([cat]) => cat === 'Agua')?.[1] ?? 0, color: '#f7c948' },
-    {
-      label: 'Otros',
-      value: Math.max(
-        0,
-        ctx.denuncias.length -
-          (categoryTotals.find(([cat]) => cat === 'Movilidad')?.[1] ?? 0) -
-          (categoryTotals.find(([cat]) => cat === 'Recolección')?.[1] ?? 0) -
-          (categoryTotals.find(([cat]) => cat === 'Agua')?.[1] ?? 0),
-      ),
-      color: '#b4c3ff',
-    },
+    { label: 'Movilidad Urbana', value: categoryTotals.find(([cat]) => cat === 'Movilidad Urbana')?.[1] ?? 0, color: '#002693' },
+    { label: 'Saneamiento ambiental', value: categoryTotals.find(([cat]) => cat === 'Saneamiento ambiental')?.[1] ?? 0, color: '#fe4102' },
+    { label: 'Agua y Alcantarillado', value: categoryTotals.find(([cat]) => cat === 'Agua y Alcantarillado')?.[1] ?? 0, color: '#f7c948' },
+    { label: 'Servicios ciudadanos', value: categoryTotals.find(([cat]) => cat === 'Servicios ciudadanos')?.[1] ?? 0, color: '#b4c3ff' },
   ]
 
   const pieTotal = pieCategories.reduce((sum, item) => sum + item.value, 0) || 1
@@ -237,12 +215,21 @@ export default function AnalisisPage() {
       title="Análisis"
       subtitle="Conoce el panorama general de los aportes ciudadanos y detecta los principales tendencias para tomar mejores decisiones."
     >
+      {error ? (
+        <p role="alert" className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+          {error}
+        </p>
+      ) : null}
+      {cargando && ctx.denuncias.length === 0 ? (
+        <p role="status" className="mb-4 rounded-2xl border border-[#e2e9f6] bg-white p-4 text-sm font-semibold text-[#5d6f92]">
+          Cargando análisis…
+        </p>
+      ) : null}
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           {[
             {
               label: 'Total de aportes',
               value: reporte.total,
-              trend: '+25%',
               accent: 'text-[#002693]',
               icon: <MessageSquareText size={18} className="text-[#002693]" aria-hidden="true" />,
               color: 'bg-[#eef4ff]',
@@ -250,7 +237,6 @@ export default function AnalisisPage() {
             {
               label: 'Casos críticos',
               value: criticalCount,
-              trend: '+33%',
               accent: 'text-[#ef4444]',
               icon: <TriangleAlert size={18} className="text-[#ef4444]" aria-hidden="true" />,
               color: 'bg-[#fff0f0]',
@@ -258,7 +244,6 @@ export default function AnalisisPage() {
             {
               label: 'Movilidad urbana',
               value: `${movilidadPct}%`,
-              trend: '-12%',
               accent: 'text-[#002693]',
               icon: <BusFront size={18} className="text-[#002693]" aria-hidden="true" />,
               color: 'bg-[#edf5ff]',
@@ -266,7 +251,6 @@ export default function AnalisisPage() {
             {
               label: 'Prioridad máxima',
               value: `${Math.min(100, Math.max(0, Math.round(maxPriority)))} / 100`,
-              trend: '+8%',
               accent: 'text-[#f7b500]',
               icon: <Star size={18} className="text-[#f7b500]" aria-hidden="true" />,
               color: 'bg-[#fff7df]',
@@ -277,9 +261,6 @@ export default function AnalisisPage() {
                 <div className={`grid h-10 w-10 place-items-center rounded-xl ${item.color}`}>
                   {item.icon}
                 </div>
-                <span className="rounded-full bg-[#f5f7fb] px-2 py-0.5 text-[10px] font-black text-[#5a6987]">
-                  {item.trend}
-                </span>
               </div>
 
               <div className="mt-4 flex items-end justify-between gap-3">

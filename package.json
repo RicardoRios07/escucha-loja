@@ -22,10 +22,14 @@
     "data:all": "npm run data:buildings && npm run data:tiles"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.1.0",
     "@tailwindcss/vite": "^4.3.3",
+    "@vercel/blob": "^2.8.0",
     "chart.js": "^4.5.1",
     "clsx": "^2.1.1",
     "framer-motion": "^13.1.0",
+    "google-auth-library": "^11.1.0",
+    "jose": "^6.2.12",
     "lucide-react": "^0.400.0",
     "maplibre-gl": "^6.9.1",
     "openai": "^7.20.0",

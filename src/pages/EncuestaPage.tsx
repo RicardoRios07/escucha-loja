@@ -1,29 +1,29 @@
 import { useNavigate } from "react-router-dom"
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { motion } from "framer-motion"
 import { Check } from "lucide-react"
 import EncuestaWizard from "../components/escucha/EncuestaWizard"
 import Logo from "../components/escucha/Logo"
-import { getBarrioAprox, getDenuncias } from "../lib/escucha/store"
+import { getBarrioAprox } from "../lib/escucha/store"
+import { useReportesPublicos } from "../lib/escucha/repo"
 import { categoriaColor } from "../lib/escucha/geo"
+import type { MvpDenuncia } from "../lib/escucha/types"
 
 export default function EncuestaPage() {
   const navigate = useNavigate()
   const [open, setOpen] = useState(true)
-  const [count, setCount] = useState(0)
   const [lastId, setLastId] = useState<string | null>(null)
+  const [enviado, setEnviado] = useState<MvpDenuncia | null>(null)
+  const { datos: publicos } = useReportesPublicos()
   const volver = () => {
     const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0
     if (idx > 0) navigate(-1)
     else navigate('/vecino')
   }
-  useEffect(() => { if (!open) { try { setCount(getDenuncias().length) } catch { /* noop */ } } }, [open])
 
   if (!open) {
     // Resumen del aporte recién enviado (categoría + sector) para reforzar el cierre.
-    const enviado = lastId
-      ? (() => { try { return getDenuncias().find((x) => x.id === lastId) } catch { return undefined } })()
-      : undefined
+    const count = publicos.length + (enviado && !publicos.some((x) => x.id === enviado.id) ? 1 : 0)
     return (
       <div className="min-h-dvh flex items-center justify-center bg-[#f8fafc] p-6">
         <motion.div
@@ -82,7 +82,7 @@ export default function EncuestaPage() {
             )}
             <div className="flex gap-3 mt-3">
               <button onClick={() => navigate("/vecino/comunidad")} className="flex-1 min-h-[48px] rounded-2xl border font-bold hover:bg-gray-50 active:scale-[0.99]">Ver mapa</button>
-              <button onClick={() => { setLastId(null); setOpen(true) }} className="flex-1 min-h-[48px] rounded-2xl border font-bold hover:bg-gray-50 active:scale-[0.99]">Enviar otro</button>
+              <button onClick={() => { setLastId(null); setEnviado(null); setOpen(true) }} className="flex-1 min-h-[48px] rounded-2xl border font-bold hover:bg-gray-50 active:scale-[0.99]">Enviar otro</button>
             </div>
             <button onClick={() => navigate("/vecino")} className="mt-3 text-sm underline text-gray-500">Volver al inicio</button>
           </div>
@@ -90,5 +90,5 @@ export default function EncuestaPage() {
       </div>
     )
   }
-  return <EncuestaWizard inline onComplete={(id) => { setLastId(id ?? null); setOpen(false) }} onCancel={volver} />
+  return <EncuestaWizard inline onComplete={(id, denuncia) => { setLastId(id ?? null); setEnviado(denuncia ?? null); setOpen(false) }} onCancel={volver} />
 }

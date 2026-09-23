@@ -1,0 +1,13 @@
+User-agent: *
+Allow: /$
+Allow: /terminos
+Disallow: /admin
+Disallow: /api/
+Disallow: /vecino
+Disallow: /encuesta
+Disallow: /bienvenida
+Disallow: /ingresar
+Disallow: /acceso
+Disallow: /panel
+
+Sitemap: https://jesusescucha.com/sitemap.xml

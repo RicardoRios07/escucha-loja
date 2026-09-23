@@ -80,7 +80,7 @@ export function sugerenciaParaCluster(c: Cluster): string {
     return 'Intervención prioritaria · inspección en 48h y cuadrilla de agua'
   if (cats.includes('Movilidad') && c.count >= 2)
     return 'Intervención agrupada · bacheo y señalización en una sola ruta'
-  if (cats.includes('Recolección')) return 'Refuerzo de recolección y limpieza focalizada'
+  if (cats.includes('Recolección') || cats.includes('Saneamiento')) return 'Refuerzo de recolección y limpieza focalizada'
   return 'Visita técnica y validación en campo'
 }
 

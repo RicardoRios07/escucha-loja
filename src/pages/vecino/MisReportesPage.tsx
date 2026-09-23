@@ -1,41 +1,24 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ClipboardList, Plus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import PageBanner from '../../components/escucha/PageBanner'
 import MediaThumb from '../../components/escucha/MediaThumb'
-import { useAuth } from '../../components/escucha/AuthContext'
-import { getBarrioAprox, getDenuncias } from '../../lib/escucha/store'
+import { getBarrioAprox } from '../../lib/escucha/store'
+import { useMisReportes } from '../../lib/escucha/repo'
 import { categoriaColor, gravedadColor } from '../../lib/escucha/geo'
 
 export default function MisReportesPage() {
-  const { sesion } = useAuth()
   const [filtro, setFiltro] = useState('Todas')
-  const [tick, setTick] = useState(0)
-
-  useEffect(() => {
-    const refrescar = () => setTick((t) => t + 1)
-    window.addEventListener('focus', refrescar)
-    const onVis = () => {
-      if (document.visibilityState === 'visible') refrescar()
-    }
-    document.addEventListener('visibilitychange', onVis)
-    return () => {
-      window.removeEventListener('focus', refrescar)
-      document.removeEventListener('visibilitychange', onVis)
-    }
-  }, [])
+  const { datos: miasTodas, cargando } = useMisReportes()
 
   const { mias, categorias } = useMemo(() => {
-    const todas = getDenuncias()
-    const mias = (sesion?.cedula ? todas.filter((d) => d.cedula === sesion.cedula) : []).sort((a, b) =>
-      b.createdAt.localeCompare(a.createdAt),
-    )
-    const filtradas = filtro === 'Todas' ? mias : mias.filter((d) => d.categoriaLabel === filtro)
+    const ordenadas = [...miasTodas].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    const filtradas = filtro === 'Todas' ? ordenadas : ordenadas.filter((d) => d.categoriaLabel === filtro)
     return {
       mias: filtradas,
-      categorias: ['Todas', ...Array.from(new Set(mias.map((d) => d.categoriaLabel)))],
+      categorias: ['Todas', ...Array.from(new Set(ordenadas.map((d) => d.categoriaLabel)))],
     }
-  }, [sesion?.cedula, filtro, tick])
+  }, [miasTodas, filtro])
 
   return (
     <main className="mx-auto w-full max-w-md px-5 pt-5 lg:max-w-5xl lg:px-8">
@@ -45,24 +28,12 @@ export default function MisReportesPage() {
         hideLogoDesktop
         eyebrow="Escucha Loja"
         title="Mis reportes"
-        desc={sesion?.cedula ? `Vinculados a tu cédula · ${mias.length}` : 'Agrega tu cédula para verlos aquí'}
+        desc={cargando && miasTodas.length === 0 ? 'Cargando tus reportes…' : `${miasTodas.length} reportes vinculados a tu cuenta`}
       />
 
-      {!sesion?.cedula ? (
-        <div className="mt-4 rounded-2xl border bg-white p-6 text-center">
-          <span className="mx-auto grid h-12 w-12 place-items-center rounded-2xl bg-[#002693]/[0.07] text-[#002693]">
-            <ClipboardList size={22} aria-hidden="true" />
-          </span>
-          <p className="mt-3 text-sm font-bold text-[#111]">Sin cédula en tu sesión</p>
-          <p className="mt-1 text-[13px] leading-relaxed text-[#111]/55">
-            Vuelve a ingresar con tu cédula y tus reportes aparecerán aquí automáticamente.
-          </p>
-          <Link
-            to="/ingresar"
-            className="mt-4 inline-flex min-h-[48px] items-center rounded-full bg-[#002693] px-6 text-sm font-bold text-white active:scale-[0.98]"
-          >
-            Agregar mi cédula
-          </Link>
+      {cargando && miasTodas.length === 0 ? (
+        <div className="mt-4 rounded-2xl border bg-white p-6 text-center" role="status">
+          <p className="text-sm font-bold text-[#111]">Cargando…</p>
         </div>
       ) : (
         <div className="pb-6">

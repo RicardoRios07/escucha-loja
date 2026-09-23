@@ -25,18 +25,17 @@ import MediaThumb from '../../components/escucha/MediaThumb'
 import AdminDetalleModal from '../../components/escucha/AdminDetalleModal'
 import { PanelCard, PanelPage } from '../../components/escucha/PanelPage'
 import {
-  ensureSeed,
   exportToCSV,
   getBarrioAprox,
   getClusters,
   getDailySeries,
-  getDenuncias,
   getParroquiaAprox,
   getScoredDenuncias,
   getYaReportadoStats,
   nombreParroquia,
   nombreSector,
 } from '../../lib/escucha/store'
+import { useReportesAdmin } from '../../lib/escucha/repo'
 import { PARROQUIAS } from '../../data/parroquias'
 import { categoriaColor, gravedadColor } from '../../lib/escucha/geo'
 import type { MvpDenuncia } from '../../lib/escucha/types'
@@ -89,13 +88,9 @@ export default function ResumenPage() {
     return () => window.clearTimeout(t)
   }, [busqueda])
 
+  const { datos: todas, cargando, error } = useReportesAdmin()
+
   const datos = useMemo(() => {
-    try {
-      ensureSeed()
-    } catch {
-      /* noop */
-    }
-    const todas = getDenuncias()
     const clusters = getClusters(todas)
     const scored = getScoredDenuncias(todas, clusters)
     const conSector = scored.map((d) => ({
@@ -147,7 +142,7 @@ export default function ResumenPage() {
     const categorias = ['Todas', ...Object.keys(porCat)]
 
     return { total, criticas, porCat, topCat, wow, ya, categorias, ordenadas, serie }
-  }, [fCategoria, fParroquia, fGravedad, fRango, orden, busquedaDeb])
+  }, [todas, fCategoria, fParroquia, fGravedad, fRango, orden, busquedaDeb])
 
   const totalPages = Math.max(1, Math.ceil(datos.ordenadas.length / perPage))
   const pagina = datos.ordenadas.slice((page - 1) * perPage, page * perPage)
@@ -233,6 +228,16 @@ export default function ResumenPage() {
       title="Resumen"
       subtitle="Vista ejecutiva del estado de los aportes ciudadanos: indicadores, categorías, tendencia y detalle filtrable."
     >
+      {error ? (
+        <p role="alert" className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
+          {error}
+        </p>
+      ) : null}
+      {cargando && todas.length === 0 ? (
+        <p role="status" className="mb-4 rounded-2xl border bg-white p-4 text-sm font-semibold text-[#5d6f92]">
+          Cargando reportes…
+        </p>
+      ) : null}
       {/* KPIs */}
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {kpis.map((item) => (

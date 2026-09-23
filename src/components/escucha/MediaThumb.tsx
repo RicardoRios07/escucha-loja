@@ -1,5 +1,5 @@
 import { Film } from 'lucide-react'
-import { isMediaRef, useMediaUrl, type MediaItem } from '../../lib/escucha/media'
+import { isMediaRef, isMediaRemota, useMediaUrl, type MediaItem } from '../../lib/escucha/media'
 
 interface Props {
   item: MediaItem
@@ -9,10 +9,14 @@ interface Props {
   controles?: boolean
 }
 
-/** Miniatura de evidencia: resuelve dataURL heredado o blob de IndexedDB. */
+/** Miniatura de evidencia: dataURL, blob local o URL remota (Vercel Blob). */
 export default function MediaThumb({ item, alt, className, controles = false }: Props) {
   const url = useMediaUrl(item)
-  const esVideo = isMediaRef(item) && item.kind === 'video'
+  const esVideo = isMediaRef(item)
+    ? item.kind === 'video'
+    : isMediaRemota(item)
+      ? item.kind === 'video'
+      : /\.(mp4|webm|mov|m4v|3gp)(\?|#|$)/i.test(item)
 
   if (!url) {
     return (

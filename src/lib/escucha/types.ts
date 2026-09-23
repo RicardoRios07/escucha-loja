@@ -4,7 +4,7 @@ export type CategoriaId =
   | "Agua Potable, Alcantarillado Sanitario, Alcantarillado Pluvial"
   | "Recolección de Desechos y Saneamiento Ambiental"
   | "Movilidad Urbana: Bacheo de Calles, Frecuencias, Obstrucciones de aceras, etc."
-  | "Obstrucción de vías por construcciones, ornato, permisos de construcción"
+  | "Servicios Ciudadanos: Trámites, Atención al Vecino y Servicios Administrativos"
 
 export type Gravedad = "Baja" | "Media" | "Alta" | "Crítica"
 export type Frecuencia = "Una vez" | "Semanal" | "Diario" | "Permanente"
@@ -38,6 +38,8 @@ export interface MvpDenuncia {
   encuesta: EncuestaRespuestas
   cedula: string
   nombreCiudadano?: string
+  /** Solo en filas admin: contacto del autor (nunca se publica). */
+  contacto?: { nombre: string | null; email: string; celular: string | null }
 }
 
 export interface MvpUser {

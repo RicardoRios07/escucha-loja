@@ -1,20 +1,20 @@
-import { ArrowRight, Map, Megaphone, Shield, TreePine, Truck, Droplets } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { ArrowRight, Map, Megaphone, TreePine, Truck, Droplets } from 'lucide-react'
+import { useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { CATEGORIES, IMG, type CategoryKey } from '../data/content'
 import Logo from '../components/escucha/Logo'
 import LojaMap3D, { type LojaReport } from '../components/escucha/LojaMap3D'
-import { ensureSeed, getBarrioAprox, getDenuncias, getStats } from '../lib/escucha/store'
-import type { MvpDenuncia } from '../lib/escucha/types'
+import { getBarrioAprox, getStats } from '../lib/escucha/store'
+import { useReportesPublicos } from '../lib/escucha/repo'
 
-const FILTER_ICONS = { agua: Droplets, movilidad: Truck, seguridad: Shield, espacio: TreePine }
+const FILTER_ICONS = { agua: Droplets, movilidad: Truck, saneamiento: TreePine, servicios: Megaphone }
 
 /** Mapea la etiqueta del store a las categorías de la landing. */
 const LABEL_A_CATEGORIA: [RegExp, CategoryKey][] = [
   [/agua/i, 'agua'],
   [/movilidad/i, 'movilidad'],
-  [/recolecci/i, 'espacio'],
-  [/control urbano/i, 'seguridad'],
+  [/saneamiento|recolecci/i, 'saneamiento'],
+  [/servicios/i, 'servicios'],
 ]
 
 function categoriaDe(label: string): CategoryKey | null {
@@ -22,28 +22,16 @@ function categoriaDe(label: string): CategoryKey | null {
   return null
 }
 
-const VOCES = [
-  { texto: 'Subí la foto del poste sin luz un lunes y a los días vi cuadrillas en el sector. Esto sí se siente distinto.', nombre: 'Rosa Elena Cabrera', barrio: 'Vecina de San Sebastián' },
-  { texto: 'Reporté la fuga de mi cuadra con un video de 10 segundos. Por primera vez sentí que mi voz llegó a algún lado.', nombre: 'Carlos Armijos', barrio: 'Vecino de Punzara' },
-]
-
 const FAQS = [
   { q: '¿Qué es Escucha Loja?', a: 'Es un canal directo con la ciudad: reportas lo que pasa en tu barrio con foto o video, ubicación y un relato breve, y nosotros lo escuchamos. Tu aporte suma al mapa y a la priorización de la ciudad.' },
-  { q: '¿Mi reporte es anónimo?', a: 'Pedimos tu cédula solo para validar que eres una persona real. Tu nombre y tu cédula nunca se publican: en el mapa y los resúmenes solo aparecen el problema, el sector y la evidencia.' },
+  { q: '¿Mi reporte es anónimo?', a: 'Entras con tu cuenta de Google para validar que eres una persona real. Tu nombre y tu correo nunca se publican: en el mapa y los resúmenes solo aparecen el problema, el sector y la evidencia.' },
   { q: '¿Qué pasa con mi aporte después de enviarlo?', a: 'Aparece en el mapa de calor, alimenta las estadísticas por categoría y sector, y entra al análisis de priorización que revisamos cada semana para definir qué atender primero.' },
   { q: '¿Cuánto tiempo toma participar?', a: 'Tres pasos y menos de 2 minutos: eliges la categoría, ubicas el punto en el mapa y agregas evidencia con tu relato.' },
   { q: '¿Necesito instalar alguna aplicación?', a: 'No. Todo funciona en el navegador de tu celular: puedes tomar fotos o grabar video en el momento, sin descargas.' },
 ]
 
 export default function HomePage() {
-  const [vivos, setVivos] = useState<MvpDenuncia[]>(() => {
-    try { ensureSeed(); return getDenuncias() } catch { return [] }
-  })
-  useEffect(() => {
-    const onStorage = () => { try { setVivos(getDenuncias()) } catch {} }
-    window.addEventListener('storage', onStorage)
-    return () => window.removeEventListener('storage', onStorage)
-  }, [])
+  const { datos: vivos, cargando } = useReportesPublicos()
   const reports = useMemo<LojaReport[]>(
     () => vivos.map((d) => ({
       lat: d.lat,
@@ -59,7 +47,7 @@ export default function HomePage() {
   )
   const stats = useMemo(() => getStats(vivos), [vivos])
   const conteoPorCategoria = useMemo(() => {
-    const c: Record<CategoryKey, number> = { agua: 0, movilidad: 0, seguridad: 0, espacio: 0 }
+    const c: Record<CategoryKey, number> = { agua: 0, movilidad: 0, saneamiento: 0, servicios: 0 }
     for (const d of vivos) { const k = categoriaDe(d.categoriaLabel); if (k) c[k] += 1 }
     return c
   }, [vivos])
@@ -77,7 +65,7 @@ export default function HomePage() {
         <img src={IMG.cityTop} alt="Loja, Ecuador" className="campaign-hero-city" />
         <img src={IMG.candidateTop} alt="" className="campaign-hero-candidate" aria-hidden="true" />
         <div className="campaign-hero-copy">
-          <div className="campaign-tag"><Megaphone size={16} /> {vivos.length === 1 ? '1 aporte de vecinos' : `${vivos.length} aportes de vecinos`}</div>
+          <div className="campaign-tag"><Megaphone size={16} /> {cargando && vivos.length === 0 ? 'Cargando aportes…' : vivos.length === 1 ? '1 aporte de vecinos' : `${vivos.length} aportes de vecinos`}</div>
           <h1>¿Qué necesita<br />{' '}<span>tu barrio?</span><br />{' '}Cuéntalo.</h1>
           <p>Tu opinión hace la diferencia. Comparte lo que ves, lo que falta y lo que podemos mejorar juntos.</p>
           <div className="campaign-actions">
@@ -105,7 +93,7 @@ export default function HomePage() {
             <p className="campaign-eyebrow">Participar es simple</p>
             <h2>Tres pasos,<br /><em>menos de 2 minutos</em></h2>
             <div className="campaign-steps">
-              {[['01', 'Elige', 'Agua, recolección, movilidad o control urbano.'], ['02', 'Ubica', 'Punto en el mapa, una dirección breve.'], ['03', 'Evidencia', 'Foto y relato de lo que pasa.']].map(([number, title, text]) => (
+              {[['01', 'Elige', 'Agua, saneamiento, movilidad y servicios.'], ['02', 'Ubica', 'Punto en el mapa, una dirección breve.'], ['03', 'Evidencia', 'Foto y relato de lo que pasa.']].map(([number, title, text]) => (
                 <div className="campaign-step" key={number}><b>{number}</b><strong>{title}</strong><span>{text}</span></div>
               ))}
             </div>
@@ -116,10 +104,6 @@ export default function HomePage() {
       </section>
 
       <section className="campaign-bottom">
-        <article className="campaign-testimonial">
-          <img src={IMG.portrait} alt="Vecino de Loja" loading="lazy" decoding="async" />
-          <div><span className="campaign-quote">“</span><p>Me gusta esta iniciativa porque nos da la oportunidad de ser escuchados. Loja la hacemos todos.</p><strong>María Fernanda López</strong><small>Vecina del barrio El Valle</small></div>
-        </article>
         <article id="aportes" className="campaign-happening">
           <div><h2>Lo que está pasando<br /><span>en Loja</span></h2><div className="campaign-categories">{CATEGORIES.map((category) => { const Icon = FILTER_ICONS[category.key as CategoryKey]; return <button key={category.key} type="button"><i style={{ backgroundColor: category.color }}><Icon size={17} /></i><b>{category.label}</b><small>{conteoPorCategoria[category.key]} aportes</small></button> })}</div></div>
           <img src={IMG.cityCorner} alt="Ciudad de Loja" loading="lazy" decoding="async" />
@@ -131,19 +115,6 @@ export default function HomePage() {
         <div><b>{barrios}</b><span>barrios alcanzados</span></div>
         <div><b>{lider ? lider.n : 0}</b><span>{lider ? `lidera ${lider.label}` : 'sin datos aún'}</span></div>
         <div><b>{criticas}</b><span>casos críticos</span></div>
-      </section>
-
-      <section className="campaign-voices" aria-label="Voces de vecinos">
-        <h2>Voces que <span>ya se escuchan</span></h2>
-        <div className="campaign-voices-grid">
-          {VOCES.map(v => (
-            <figure key={v.nombre}>
-              <span className="campaign-quote">“</span>
-              <blockquote>{v.texto}</blockquote>
-              <figcaption><strong>{v.nombre}</strong><small>{v.barrio}</small></figcaption>
-            </figure>
-          ))}
-        </div>
       </section>
 
       <section className="campaign-faq" aria-label="Preguntas frecuentes">

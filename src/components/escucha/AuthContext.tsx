@@ -1,49 +1,87 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
-import { Navigate } from 'react-router-dom'
-import { clearSesion, getSesion, setSesion, type Rol, type Sesion } from '../../lib/escucha/session'
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Navigate, useLocation } from 'react-router-dom'
+import LoadingScreen from './LoadingScreen'
+import type { Rol } from '../../lib/escucha/session'
+
+export interface SessionUser {
+  id: string
+  email: string
+  nombre: string | null
+  rol: Rol
+  celular: string | null
+  onboardingRequired: boolean
+}
 
 interface AuthValue {
-  sesion: Sesion | null
-  entrar: (rol: Rol, datos?: { nombre?: string; cedula?: string }) => void
-  actualizar: (datos: { nombre?: string; cedula?: string }) => void
-  salir: () => void
+  /** Usuario Google (sesión httpOnly verificada contra Neon). Null = sin login. */
+  user: SessionUser | null
+  cargando: boolean
+  googleConfigured: boolean
+  entrarConGoogle: () => void
+  salir: () => Promise<void>
+  refrescar: () => Promise<void>
 }
+
+export const DESTINO: Record<Rol, string> = { vecino: '/vecino', admin: '/admin/mapa' }
 
 const AuthCtx = createContext<AuthValue | null>(null)
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [sesion, setSesionState] = useState<Sesion | null>(() => getSesion())
+  const [user, setUser] = useState<SessionUser | null>(null)
+  const [cargando, setCargando] = useState(true)
+  const [googleConfigured, setGoogleConfigured] = useState(false)
 
-  const entrar = useCallback((rol: Rol, datos?: { nombre?: string; cedula?: string }) => {
-    const s: Sesion = {
-      rol,
-      nombre: datos?.nombre?.trim() || undefined,
-      cedula: datos?.cedula?.trim() || undefined,
-      createdAt: new Date().toISOString(),
-    }
-    setSesion(s)
-    setSesionState(s)
-  }, [])
-
-  const salir = useCallback(() => {
-    clearSesion()
-    setSesionState(null)
-  }, [])
-
-  const actualizar = useCallback((datos: { nombre?: string; cedula?: string }) => {
-    setSesionState((prev) => {
-      if (!prev) return prev
-      const next: Sesion = {
-        ...prev,
-        nombre: datos.nombre?.trim() || undefined,
-        cedula: datos.cedula?.trim() || undefined,
+  const refrescar = useCallback(async () => {
+    try {
+      const r = await fetch('/api/auth/me', { credentials: 'same-origin' })
+      if (!r.ok) {
+        setUser(null)
+        return
       }
-      setSesion(next)
-      return next
-    })
+      const d = (await r.json()) as { user: SessionUser | null }
+      setUser(d.user)
+    } catch {
+      setUser(null)
+    }
   }, [])
 
-  const value = useMemo(() => ({ sesion, entrar, actualizar, salir }), [sesion, entrar, actualizar, salir])
+  useEffect(() => {
+    let vivo = true
+    void (async () => {
+      try {
+        const c = await fetch('/api/auth/config', { credentials: 'same-origin' })
+        if (vivo && c.ok) {
+          const d = (await c.json()) as { google?: boolean }
+          setGoogleConfigured(d.google === true)
+        }
+      } catch {
+        /* sin backend: login deshabilitado hasta configurar */
+      }
+      await refrescar()
+      if (vivo) setCargando(false)
+    })()
+    return () => {
+      vivo = false
+    }
+  }, [refrescar])
+
+  const entrarConGoogle = useCallback(() => {
+    window.location.href = '/api/auth/google'
+  }, [])
+
+  const salir = useCallback(async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'same-origin' })
+    } catch {
+      /* igual se limpia local */
+    }
+    setUser(null)
+  }, [])
+
+  const value = useMemo(
+    () => ({ user, cargando, googleConfigured, entrarConGoogle, salir, refrescar }),
+    [user, cargando, googleConfigured, entrarConGoogle, salir, refrescar],
+  )
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>
 }
 
@@ -53,12 +91,20 @@ export function useAuth(): AuthValue {
   return ctx
 }
 
-/** Protege una ruta por rol (mock local). Sin sesión válida redirige a /ingresar. */
+/**
+ * Protege una ruta por rol (sesión Google contra Neon).
+ * Sin login redirige a /ingresar; sin onboarding, a /bienvenida.
+ */
 export function RequireRol({ rol, children }: { rol: Rol | Rol[]; children: ReactNode }) {
-  const { sesion } = useAuth()
+  const { user, cargando } = useAuth()
+  const { pathname } = useLocation()
   const roles = Array.isArray(rol) ? rol : [rol]
-  if (!sesion || !roles.includes(sesion.rol)) {
+  if (cargando) return <LoadingScreen />
+  if (!user || !roles.includes(user.rol)) {
     return <Navigate to="/ingresar" replace />
+  }
+  if (user.onboardingRequired && pathname !== '/bienvenida') {
+    return <Navigate to="/bienvenida" replace />
   }
   return <>{children}</>
 }

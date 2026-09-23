@@ -12,9 +12,9 @@ export interface CategoriaVisual {
 /** Fuente de verdad visual de categorías: chips, pins del mapa y sprites comparten esto. */
 export const CATEGORIAS_VISUALES: CategoriaVisual[] = [
   { key: 'agua', label: 'Agua', color: '#35C2FF', icono: 'droplet', match: /agua/i },
-  { key: 'recoleccion', label: 'Recolección', color: '#16a34a', icono: 'trash', match: /recolecci/i },
+  { key: 'recoleccion', label: 'Saneamiento ambiental', color: '#16a34a', icono: 'trash', match: /saneamiento|recolecci/i },
   { key: 'movilidad', label: 'Movilidad', color: '#f59e0b', icono: 'car', match: /movilidad/i },
-  { key: 'control', label: 'Control Urbano', color: '#8b5cf6', icono: 'building', match: /control urbano/i },
+  { key: 'servicios', label: 'Servicios ciudadanos', color: '#8b5cf6', icono: 'building', match: /servicios/i },
 ]
 
 export function categoriaVisual(label: string): CategoriaVisual {
@@ -33,7 +33,7 @@ export function gravedadColor(g: string) {
 
 export function categoriaColor(label: string) {
   if (label.includes("Agua")) return "#35C2FF"
-  if (label.includes("Recolección")) return "#16a34a"
+  if (label.includes("Saneamiento") || label.includes("Recolección")) return "#16a34a"
   if (label.includes("Movilidad")) return "#f59e0b"
   return "#8b5cf6"
 }

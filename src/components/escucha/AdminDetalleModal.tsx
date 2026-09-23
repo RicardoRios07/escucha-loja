@@ -1,14 +1,9 @@
 import { useEffect, useRef } from 'react'
-import { CalendarDays, MapPin, X } from 'lucide-react'
+import { CalendarDays, MapPin, Phone, X } from 'lucide-react'
 import MediaThumb from './MediaThumb'
 import { getBarrioAprox } from '../../lib/escucha/store'
 import { categoriaColor, gravedadColor } from '../../lib/escucha/geo'
 import type { MvpDenuncia } from '../../lib/escucha/types'
-
-function maskCedula(c: string) {
-  if (!c || c.length < 5) return '••••'
-  return `${c.slice(0, 3)}…${c.slice(-2)}`
-}
 
 interface Props {
   denuncia: MvpDenuncia
@@ -67,7 +62,7 @@ export default function AdminDetalleModal({ denuncia: d, score, sector, onClose 
             <div className={`grid gap-2 ${d.evidencia.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
               {d.evidencia.map((item, i) => (
                 <MediaThumb
-                  key={typeof item === 'string' ? `ev-${i}` : item.id}
+                  key={typeof item === 'string' ? `ev-${i}` : 'remoto' in item ? item.url : item.id}
                   item={item}
                   alt={`Evidencia ${i + 1} del reporte`}
                   controles
@@ -116,11 +111,25 @@ export default function AdminDetalleModal({ denuncia: d, score, sector, onClose 
                 <dd className="font-semibold text-[#111]/75">{new Date(d.createdAt).toLocaleString()}</dd>
                 <dd className="text-[12px] text-[#111]/45">
                   {[d.encuesta.afectaMovilidad && 'Afecta movilidad', d.encuesta.afectaSalud && 'Afecta salud', d.encuesta.yaReportadoMunicipio && 'Ya reportado antes'].filter(Boolean).join(' · ') || 'Sin impacto marcado'}
-                  {' · '}Cédula {maskCedula(d.cedula)}
                   {d.nombreCiudadano ? ` · ${d.nombreCiudadano}` : ''}
                 </dd>
               </div>
             </div>
+            {d.contacto && (
+              <div className="flex items-start gap-2.5 border-t border-black/5 pt-2.5">
+                <Phone size={16} className="mt-0.5 shrink-0 text-[#FE4102]" aria-hidden="true" />
+                <div>
+                  <dt className="sr-only">Contacto del autor</dt>
+                  <dd className="font-semibold text-[#111]/75">
+                    {d.contacto.nombre || d.contacto.email}
+                  </dd>
+                  <dd className="text-[12px] text-[#111]/45">
+                    {d.contacto.email}
+                    {d.contacto.celular ? ` · ${d.contacto.celular}` : ''}
+                  </dd>
+                </div>
+              </div>
+            )}
           </dl>
         </div>
       </div>

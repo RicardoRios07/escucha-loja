@@ -2,24 +2,27 @@ import { useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, CalendarDays, Check, MapPin, Share2, Trash2 } from 'lucide-react'
 import MediaThumb from '../../components/escucha/MediaThumb'
-import { useAuth } from '../../components/escucha/AuthContext'
-import { deleteDenuncia, getBarrioAprox, getDenuncias } from '../../lib/escucha/store'
+import { getBarrioAprox } from '../../lib/escucha/store'
+import { borrarReporte, useMisReportes } from '../../lib/escucha/repo'
 import { deleteMedia, isMediaRef } from '../../lib/escucha/media'
 import { categoriaColor, gravedadColor } from '../../lib/escucha/geo'
 import PageBanner from '../../components/escucha/PageBanner'
 
-function maskCedula(c: string) {
-  if (!c || c.length < 5) return '••••'
-  return `${c.slice(0, 3)}…${c.slice(-2)}`
-}
-
 export default function ReporteDetallePage() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { sesion } = useAuth()
   const [copiado, setCopiado] = useState(false)
-  const d = getDenuncias().find((x) => x.id === id)
-  const esPropio = !!sesion?.cedula && !!d && d.cedula === sesion.cedula
+  const [borrando, setBorrando] = useState(false)
+  const { datos: mios, cargando, recargar } = useMisReportes()
+  const d = mios.find((x) => x.id === id)
+
+  if (cargando && mios.length === 0) {
+    return (
+      <main className="mx-auto w-full max-w-md px-5 pt-10 text-center">
+        <p className="text-lg font-black text-[#111]" role="status">Cargando reporte…</p>
+      </main>
+    )
+  }
 
   if (!d) {
     return (
@@ -62,7 +65,7 @@ export default function ReporteDetallePage() {
         <div className={`mt-3 grid gap-2 ${d.evidencia.length > 1 ? 'grid-cols-2' : 'grid-cols-1'}`}>
           {d.evidencia.map((item, i) => (
             <MediaThumb
-              key={typeof item === 'string' ? `ev-${i}` : item.id}
+              key={typeof item === 'string' ? `ev-${i}` : 'remoto' in item ? item.url : item.id}
               item={item}
               alt={`Evidencia ${i + 1} del reporte`}
               controles
@@ -116,7 +119,6 @@ export default function ReporteDetallePage() {
             </dd>
             <dd className="text-[12px] text-[#111]/45">
               {[d.encuesta.afectaMovilidad && 'Afecta movilidad', d.encuesta.afectaSalud && 'Afecta salud', d.encuesta.yaReportadoMunicipio && 'Ya reportado antes'].filter(Boolean).join(' · ') || 'Sin impacto marcado'}
-              {' · '}Cédula {maskCedula(d.cedula)}
             </dd>
           </div>
         </div>
@@ -170,19 +172,26 @@ export default function ReporteDetallePage() {
           {copiado ? <Check size={16} aria-hidden="true" /> : <Share2 size={16} aria-hidden="true" />}
           {copiado ? 'Enlace copiado' : 'Compartir'}
         </button>
-        {esPropio && (
+        {d && (
           <button
-            onClick={() => {
-              if (!window.confirm('¿Eliminar este reporte? Se borrará de este dispositivo con su evidencia.')) return
-              for (const item of d.evidencia) {
-                if (isMediaRef(item)) void deleteMedia(item.id)
+            onClick={async () => {
+              if (!window.confirm('¿Eliminar este reporte? Se borrará de tu cuenta con su evidencia.')) return
+              setBorrando(true)
+              try {
+                for (const item of d.evidencia) {
+                  if (isMediaRef(item)) void deleteMedia(item.id)
+                }
+                await borrarReporte(d.id)
+                recargar()
+                navigate('/vecino/mis-reportes')
+              } catch {
+                setBorrando(false)
               }
-              deleteDenuncia(d.id)
-              navigate('/vecino/mis-reportes')
             }}
-            className="inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl border border-[#ef4444]/30 bg-white text-sm font-bold text-[#ef4444] active:scale-[0.98]"
+            disabled={borrando}
+            className="inline-flex min-h-[48px] flex-1 items-center justify-center gap-2 rounded-xl border border-[#ef4444]/30 bg-white text-sm font-bold text-[#ef4444] active:scale-[0.98] disabled:opacity-50"
           >
-            <Trash2 size={16} aria-hidden="true" /> Eliminar
+            <Trash2 size={16} aria-hidden="true" /> {borrando ? 'Eliminando…' : 'Eliminar'}
           </button>
         )}
       </div>

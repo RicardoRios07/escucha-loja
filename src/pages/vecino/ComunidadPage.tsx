@@ -3,18 +3,14 @@ import { Eye } from 'lucide-react'
 import LojaMap3D, { type LojaReport } from '../../components/escucha/LojaMap3D'
 import PageBanner from '../../components/escucha/PageBanner'
 import MediaThumb from '../../components/escucha/MediaThumb'
-import { ensureSeed, getBarrioAprox, getDenuncias, getStats } from '../../lib/escucha/store'
+import { getBarrioAprox, getStats } from '../../lib/escucha/store'
+import { useReportesPublicos } from '../../lib/escucha/repo'
 import { categoriaColor } from '../../lib/escucha/geo'
 
-/** Resumen público: agregados y mapa sin datos personales (sin nombres ni cédulas). */
+/** Resumen público: agregados y mapa sin datos personales (sin nombres ni correos). */
 export default function ComunidadPage() {
+  const { datos: denuncias, cargando } = useReportesPublicos()
   const { total, porCategoria, top, recientes, reports } = useMemo(() => {
-    try {
-      ensureSeed()
-    } catch {
-      /* noop */
-    }
-    const denuncias = getDenuncias()
     const stats = getStats(denuncias)
     const top = Object.entries(stats.porCategoria).sort((a, b) => (b[1] as number) - (a[1] as number))[0]
     const recientes = [...denuncias].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 5)
@@ -29,7 +25,7 @@ export default function ComunidadPage() {
       thumb: d.evidencia[0],
     }))
     return { total: stats.total, porCategoria: stats.porCategoria, top, recientes, reports }
-  }, [])
+  }, [denuncias])
 
   const maxCat = Math.max(1, ...Object.values(porCategoria).map(Number))
 
@@ -110,8 +106,11 @@ export default function ComunidadPage() {
             ))}
           </ul>
           <p className="mt-3 flex items-center gap-1.5 text-[12px] text-[#111]/45">
-            <Eye size={14} aria-hidden="true" /> Vista pública: sin nombres, sin cédulas, sin direcciones exactas.
+            <Eye size={14} aria-hidden="true" /> Vista pública: sin nombres, sin correos, sin direcciones exactas.
           </p>
+          {cargando && (
+            <p className="mt-2 text-[12px] font-semibold text-[#002693]" role="status">Actualizando aportes…</p>
+          )}
         </section>
       </div>
     </main>

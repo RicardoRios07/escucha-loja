@@ -1,12 +1,12 @@
 import { useState, useRef, useEffect, lazy, Suspense, type ChangeEvent } from "react"
 import { AnimatePresence, MotionConfig, motion } from "framer-motion"
-import { validarCedulaEcuador, formatearCedula } from "../../lib/escucha/cedula"
 import {
-  addDenuncia, resolverUbicacion, nombreParroquia, nombreSector, opcionesSector,
+  resolverUbicacion, nombreParroquia, nombreSector, opcionesSector,
   SECTOR_RURAL_OTRO,
 } from "../../lib/escucha/store"
+import { crearReporte, codigoCategoria } from "../../lib/escucha/repo"
 import { PARROQUIAS, CANTON_BOUNDS } from "../../data/parroquias"
-import type { CategoriaId, Gravedad, Frecuencia, TiempoProblema } from "../../lib/escucha/types"
+import type { CategoriaId, Gravedad, Frecuencia, TiempoProblema, MvpDenuncia } from "../../lib/escucha/types"
 import {
   MAX_MEDIA_FILES, MAX_VIDEO_SECONDS, deleteMedia, getVideoDuration,
   putMedia, validateMediaFile, type MediaRef,
@@ -25,20 +25,14 @@ const ComplaintMap = lazy(() => import("./ComplaintMap"))
 
 const categories = [
   { id: "Agua Potable, Alcantarillado Sanitario, Alcantarillado Pluvial" as CategoriaId, name: "Agua y Alcantarillado", icon: RiDropLine, description: "Fugas, alcantarillado sanitario y pluvial." },
-  { id: "Recolección de Desechos y Saneamiento Ambiental" as CategoriaId, name: "Recolección", icon: RiLeafLine, description: "Desechos sólidos y saneamiento ambiental." },
-  { id: "Movilidad Urbana: Bacheo de Calles, Frecuencias, Obstrucciones de aceras, etc." as CategoriaId, name: "Movilidad Urbana", icon: RiRoadMapLine, description: "Baches, señalización, aceras, semáforos." },
-  { id: "Obstrucción de vías por construcciones, ornato, permisos de construcción" as CategoriaId, name: "Control Urbano", icon: RiBuildingLine, description: "Obstrucción de vías y permisos." },
+  { id: "Recolección de Desechos y Saneamiento Ambiental" as CategoriaId, name: "Saneamiento ambiental", icon: RiLeafLine, description: "Desechos sólidos, limpieza y saneamiento ambiental." },
+  { id: "Movilidad Urbana: Bacheo de Calles, Frecuencias, Obstrucciones de aceras, etc." as CategoriaId, name: "Movilidad Urbana", icon: RiRoadMapLine, description: "Baches, señalización, aceras, semáforos, obstrucción de vías y permisos." },
+  { id: "Servicios Ciudadanos: Trámites, Atención al Vecino y Servicios Administrativos" as CategoriaId, name: "Servicios ciudadanos", icon: RiBuildingLine, description: "Trámites, atención al vecino y servicios municipales." },
 ]
 
-const categoriaLabelMap: Record<string, string> = {
-  "Agua Potable, Alcantarillado Sanitario, Alcantarillado Pluvial": "Agua y Alcantarillado",
-  "Recolección de Desechos y Saneamiento Ambiental": "Recolección",
-  "Movilidad Urbana: Bacheo de Calles, Frecuencias, Obstrucciones de aceras, etc.": "Movilidad Urbana",
-  "Obstrucción de vías por construcciones, ornato, permisos de construcción": "Control Urbano",
-}
 
-// v2: cambia el orden de pasos; los borradores v1 quedan invalidados a propósito.
-const DRAFT_KEY = "escucha-loja-draft-v2"
+// v3: el reporte se crea en Neon; los borradores v2 quedan invalidados a propósito.
+const DRAFT_KEY = "escucha-loja-draft-v3"
 const TOTAL_STEPS = 5
 const STEP_NAMES = ["Categoría", "Ubicación", "Evidencia", "Encuesta", "Revisar"]
 const STEP_META = [
@@ -46,11 +40,11 @@ const STEP_META = [
   { title: "¿Dónde ocurre?", desc: "Arrastra el mapa, busca la dirección o usa tu ubicación." },
   { title: "Añade la evidencia", desc: `Hasta ${MAX_MEDIA_FILES} fotos o videos de ${MAX_VIDEO_SECONDS}s y el relato de tu caso.` },
   { title: "Cuéntanos más", desc: "Tres datos rápidos para priorizar tu reporte." },
-  { title: "Revisa tu reporte", desc: "Confirma los datos y participa con tu cédula." },
+  { title: "Revisa tu reporte", desc: "Confirma los datos y envíalo con tu cuenta." },
 ]
 
-export default function EncuestaWizard({ onComplete, onCancel, inline = false }: { onComplete: (id?: string) => void; onCancel: () => void; inline?: boolean }) {
-  const { sesion } = useAuth()
+export default function EncuestaWizard({ onComplete, onCancel, inline = false }: { onComplete: (id?: string, denuncia?: MvpDenuncia) => void; onCancel: () => void; inline?: boolean }) {
+  const { user } = useAuth()
   const [step, setStep] = useState(1)
   const [formData, setFormData] = useState({
     categoryId: "" as CategoriaId | "",
@@ -69,12 +63,9 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
     afectaMovilidad: false,
     afectaSalud: false,
     yaReportado: false,
-    cedula: sesion?.cedula ?? "",
-    nombre: sesion?.nombre ?? "",
     descripcion: "",
     media: [] as MediaRef[],
   })
-  const [cedulaError, setCedulaError] = useState<string | null>(null)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [snackbar, setSnackbar] = useState<{ show: boolean; msg: string; type: "success" | "error" }>({ show: false, msg: "", type: "success" })
@@ -144,7 +135,7 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
   const clearDraft = () => { try { localStorage.removeItem(DRAFT_KEY) } catch {} }
 
   const handleRequestClose = () => {
-    const hasData = formData.categoryId || formData.descripcion || formData.media.length > 0 || formData.cedula
+    const hasData = formData.categoryId || formData.descripcion || formData.media.length > 0
     if (hasData && step < TOTAL_STEPS) setShowConfirmClose(true)
     else { clearDraft(); onCancel(); triggerRef.current?.focus() }
   }
@@ -164,12 +155,10 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
     if (!formData.categoryId) { setSubmitError("Selecciona una categoría"); setStep(1); return }
     if (!formData.descripcion.trim()) { setSubmitError("Describe lo sucedido"); setStep(3); return }
     if (formData.media.length === 0) { setSubmitError("Adjunta al menos una evidencia"); setStep(3); return }
-    const v = validarCedulaEcuador(formData.cedula)
-    if (!v.valid) { setCedulaError(v.error || "Cédula inválida"); setTimeout(() => document.getElementById("cedula")?.focus(), 150); return }
+    if (!user) { setSubmitError("Tu sesión expiró. Vuelve a ingresar."); return }
     setIsSubmitting(true)
     setProgressFeedback("Guardando aporte...")
     try {
-      const id = `mvp_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`
       // Territorio declarado o resuelto por punto (nunca vacío si hay ubicación).
       let parroquiaId = formData.parroquiaId
       let barrioId = formData.barrioId
@@ -178,34 +167,28 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
         parroquiaId = r.parroquia.id
         barrioId = r.barrio?.id ?? (r.cabecera && r.cabecera.parroquiaId === r.parroquia.id ? r.cabecera.id : SECTOR_RURAL_OTRO)
       }
-      addDenuncia({
-        id,
-        createdAt: new Date().toISOString(),
-        categoria: formData.categoryId as CategoriaId,
-        categoriaLabel: categoriaLabelMap[formData.categoryId] || formData.categoryId,
-        descripcion: formData.descripcion,
+      const creada = await crearReporte({
+        categoria_code: codigoCategoria(formData.categoryId as CategoriaId),
+        descripcion: formData.descripcion.trim(),
         lat: formData.location.lat,
         lng: formData.location.lng,
         parroquiaId,
         barrioId,
+        gravedad: formData.gravedad,
+        frecuencia: formData.frecuencia,
+        tiempoProblema: formData.tiempoProblema,
+        afectaMovilidad: formData.afectaMovilidad,
+        afectaSalud: formData.afectaSalud,
+        yaReportadoMunicipio: formData.yaReportado,
+        direccionPrincipal: formData.direccionPrincipal,
+        calleSecundaria: formData.calleSecundaria,
+        referencia: formData.referencia,
         evidencia: formData.media,
-        encuesta: {
-          gravedad: formData.gravedad,
-          frecuencia: formData.frecuencia,
-          tiempoProblema: formData.tiempoProblema,
-          afectaMovilidad: formData.afectaMovilidad,
-          afectaSalud: formData.afectaSalud,
-          yaReportadoMunicipio: formData.yaReportado,
-          direccionPrincipal: formData.direccionPrincipal,
-          calleSecundaria: formData.calleSecundaria,
-          referencia: formData.referencia,
-        },
-        cedula: formData.cedula,
-        nombreCiudadano: formData.nombre || undefined,
+        onProgreso: (i, n) => setProgressFeedback(`Subiendo evidencia ${i}/${n}…`),
       })
       clearDraft()
       setSnackbar({ show: true, msg: "¡Gracias por alzar tu voz! Tu aporte fue registrado.", type: "success" })
-      setTimeout(() => { setSnackbar({ show: false, msg: "", type: "success" }); onComplete(id); triggerRef.current?.focus() }, 1800)
+      setTimeout(() => { setSnackbar({ show: false, msg: "", type: "success" }); onComplete(creada.id, creada); triggerRef.current?.focus() }, 1800)
     } catch (e: any) {
       setSubmitError(e.message || "No se pudo registrar tu aporte")
       setSnackbar({ show: true, msg: e.message || "No se pudo registrar", type: "error" })
@@ -726,15 +709,15 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
                 <p className="text-sm text-gray-800 mt-1 leading-relaxed">{formData.descripcion}</p>
               </div>
 
-              {/* Participa con tu cédula (migrado del paso Encuesta al cierre) */}
-              <div className="rounded-2xl border bg-white p-4 sm:p-5 flex flex-col gap-4">
-                <h4 className="font-bold text-[#002693] text-sm">Participa con tu cédula</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <label htmlFor="cedula" className="flex flex-col gap-1.5 text-sm font-medium">Cédula *<input id="cedula" value={formData.cedula} onChange={e => { const v = formatearCedula(e.target.value); setFormData(p => ({ ...p, cedula: v })); if (cedulaError) setCedulaError(null) }} onBlur={() => { if (formData.cedula.length === 10) { const v = validarCedulaEcuador(formData.cedula); if (!v.valid) setCedulaError(v.error || "Cédula inválida"); } }} placeholder="1100234567" inputMode="numeric" autoComplete="off" pattern="[0-9]*" maxLength={10} aria-invalid={!!cedulaError} aria-describedby={cedulaError ? "cedula-error" : undefined} className={`h-11 rounded-xl border px-3.5 outline-none text-sm ${cedulaError ? "border-red-400 bg-red-50" : "border-gray-300 focus:border-[#002693] focus:ring-1 focus:ring-[#002693]"}`} /></label>
-                  <label htmlFor="nombre" className="flex flex-col gap-1.5 text-sm font-medium">Nombre <span className="font-normal text-gray-400">(opcional)</span><input id="nombre" value={formData.nombre} onChange={e => setFormData(p => ({ ...p, nombre: e.target.value }))} placeholder="Tu nombre" autoComplete="name" className="h-11 rounded-xl border border-gray-300 px-3.5 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none" /></label>
+              {/* Identidad verificada con Google */}
+              <div className="rounded-2xl border border-[#0db954]/30 bg-[#0db954]/[0.06] p-4 sm:p-5 flex items-center gap-3">
+                <span className="grid h-11 w-11 shrink-0 place-items-center rounded-full bg-[#002693] text-lg font-black text-white" aria-hidden="true">
+                  {((user?.nombre || user?.email) ?? 'V').charAt(0).toUpperCase()}
+                </span>
+                <div className="text-sm">
+                  <p className="font-bold text-gray-900">{user?.nombre || 'Vecino'}</p>
+                  <p className="text-gray-500">{user?.email ?? ''} · identidad verificada</p>
                 </div>
-                {cedulaError && <p id="cedula-error" role="alert" className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2 flex items-center gap-2"><RiErrorWarningLine aria-hidden="true" /> {cedulaError}</p>}
-                <p className="text-xs text-gray-500">Usamos la cédula solo para validar participación y vincular tus reportes.</p>
               </div>
 
               {submitError && <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2 flex items-center gap-2"><RiErrorWarningLine aria-hidden="true" /> {submitError}</p>}

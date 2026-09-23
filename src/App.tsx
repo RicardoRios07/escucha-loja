@@ -6,6 +6,9 @@ import LoadingScreen from './components/escucha/LoadingScreen'
 import { AuthProvider, RequireRol } from './components/escucha/AuthContext'
 
 const IngresarPage = lazy(() => import('./pages/IngresarPage'))
+const AccesoPage = lazy(() => import('./pages/AccesoPage'))
+const BienvenidaPage = lazy(() => import('./pages/BienvenidaPage'))
+const TerminosPage = lazy(() => import('./pages/TerminosPage'))
 const EncuestaPage = lazy(() => import('./pages/EncuestaPage'))
 const AdminShell = lazy(() => import('./pages/admin/AdminShell'))
 const MapaPage = lazy(() => import('./pages/admin/MapaPage'))
@@ -28,7 +31,7 @@ function ScrollToTop() {
 
 // Las páginas del flujo ciudadano traen su propia navegación;
 // la Navbar global de campaña solo se muestra en la landing.
-const SIN_NAV_CAMPAIGN = ['/ingresar', '/encuesta', '/panel', '/vecino', '/admin']
+const SIN_NAV_CAMPAIGN = ['/ingresar', '/acceso', '/bienvenida', '/encuesta', '/panel', '/vecino', '/admin']
 
 export default function App() {
   const { pathname } = useLocation()
@@ -44,6 +47,10 @@ export default function App() {
             <Routes>
               <Route path="/" element={<HomePage />} />
               <Route path="/ingresar" element={<IngresarPage />} />
+              {/* Acceso interno: sin enlaces hacia aquí en la app */}
+              <Route path="/acceso" element={<AccesoPage />} />
+              <Route path="/bienvenida" element={<BienvenidaPage />} />
+              <Route path="/terminos" element={<TerminosPage />} />
               <Route
                 path="/encuesta"
                 element={

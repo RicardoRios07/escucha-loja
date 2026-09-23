@@ -1,17 +1,22 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { ArrowRight, LogOut, Megaphone } from 'lucide-react'
 import PageBanner from '../../components/escucha/PageBanner'
 import MediaThumb from '../../components/escucha/MediaThumb'
 import { useAuth } from '../../components/escucha/AuthContext'
-import { ensureSeed, getBarrioAprox, getDenuncias } from '../../lib/escucha/store'
+import { getBarrioAprox } from '../../lib/escucha/store'
+import { useMisReportes, useReportesPublicos } from '../../lib/escucha/repo'
 import { categoriaColor } from '../../lib/escucha/geo'
 
 function useDatos() {
-  const { sesion } = useAuth()
-  const [tick, setTick] = useState(0)
+  const { user } = useAuth()
+  const publicos = useReportesPublicos()
+  const mios = useMisReportes()
   useEffect(() => {
-    const refrescar = () => setTick((t) => t + 1)
+    const refrescar = () => {
+      publicos.recargar()
+      mios.recargar()
+    }
     window.addEventListener('focus', refrescar)
     const onVis = () => {
       if (document.visibilityState === 'visible') refrescar()
@@ -21,29 +26,21 @@ function useDatos() {
       window.removeEventListener('focus', refrescar)
       document.removeEventListener('visibilitychange', onVis)
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  return useMemo(() => {
-    try {
-      ensureSeed()
-    } catch {
-      /* noop */
-    }
-    const todas = getDenuncias()
-    const mias = sesion?.cedula ? todas.filter((d) => d.cedula === sesion.cedula) : []
-    const recientes = [...todas]
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-      .slice(0, 6)
-    return { sesion, todas, mias, recientes }
-  }, [sesion, tick])
+  const recientes = [...publicos.datos]
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, 6)
+  return { user, todas: publicos.datos, mias: mios.datos, recientes }
 }
 
 export default function VecinoHome() {
   const navigate = useNavigate()
   const { salir } = useAuth()
-  const { sesion, todas, mias, recientes } = useDatos()
+  const { user, todas, mias, recientes } = useDatos()
 
   const logout = () => {
-    salir()
+    void salir()
     navigate('/')
   }
 
@@ -55,7 +52,7 @@ export default function VecinoHome() {
         className="rounded-2xl"
         hideLogoDesktop
         eyebrow="Escucha Loja"
-        title={sesion?.nombre ? `Hola, ${sesion.nombre.split(' ')[0]}` : 'Hola, vecino'}
+        title={user?.nombre ? `Hola, ${user.nombre.split(' ')[0]}` : 'Hola, vecino'}
         desc="Tu voz construye la ciudad: reporta lo que ves en tu barrio."
         actions={
           <button

@@ -11,7 +11,7 @@ import { resolverUbicacion } from '../../lib/escucha/store'
 import { PARROQUIAS, PARROQUIA_POR_ID, CANTON_BOUNDS_LL } from '../../data/parroquias'
 import type { CategoriaIconKey } from '../../lib/escucha/geo'
 import type { MediaItem } from '../../lib/escucha/media'
-import { getObjectUrlForRef, isMediaRef } from '../../lib/escucha/media'
+import { getObjectUrlForRef, isMediaRef, isMediaRemota } from '../../lib/escucha/media'
 import { sampleRoofColors } from '../../lib/escucha/roofs'
 import { addCategoryPinSprites } from './mapSprites'
 
@@ -214,7 +214,13 @@ function buildPins(
         descripcion: truncate(report.descripcion || '', 160),
         direccion: truncate(report.direccion || '', 90),
         createdAt: report.createdAt || '',
-        mediaKind: report.thumb ? (isMediaRef(report.thumb) ? report.thumb.kind : 'foto') : '',
+        mediaKind: !report.thumb
+          ? ''
+          : isMediaRef(report.thumb)
+            ? report.thumb.kind
+            : isMediaRemota(report.thumb)
+              ? report.thumb.kind
+              : 'foto',
       },
       geometry: { type: 'Point', coordinates: [lng, lat] },
     })
@@ -424,6 +430,8 @@ export default function LojaMap3D({
     }
     if (typeof media === 'string') {
       putImage(media)
+    } else if (isMediaRemota(media)) {
+      if (media.kind === 'foto') putImage(media.url)
     } else if (media.kind === 'foto') {
       getObjectUrlForRef(media).then((url) => {
         if (url) putImage(url)
@@ -852,7 +860,7 @@ export default function LojaMap3D({
                 'agua', '#35C2FF',
                 'recoleccion', '#16a34a',
                 'movilidad', '#f59e0b',
-                'control', '#8b5cf6',
+                'servicios', '#8b5cf6',
                 '#8b5cf6',
               ],
               'circle-stroke-width': 2,
