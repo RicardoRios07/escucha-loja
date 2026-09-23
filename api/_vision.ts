@@ -14,7 +14,7 @@
 
 const VISION_URL = 'https://vision.googleapis.com/v1/images:annotate'
 
-const KEY = process.env.GOOGLE_VISION_API_KEY
+const KEY = process.env.GOOGLE_VISION_API_KEY || process.env.VISION_API_KEY
 const VISION_TIMEOUT_MS = 15000
 const FETCH_TIMEOUT_MS = 10_000
 const MAX_BYTES_VISION = 15 * 1024 * 1024
