@@ -18,6 +18,7 @@ import {
   type ApiRes,
   type EvidenciaApi,
 } from './_lib.js'
+import { validarFotosIA } from './_vision.js'
 
 export interface PublicRow {
   id: string
@@ -150,6 +151,15 @@ export default async function handler(req: ApiReq, res: ApiRes) {
         if (o.kind !== 'foto' && o.kind !== 'video') continue
         const dur = typeof o.duracion_s === 'number' && Number.isFinite(o.duracion_s) ? Math.round(o.duracion_s) : null
         evOk.push({ url: o.url.slice(0, 500), kind: o.kind, duracion_s: dur })
+      }
+
+      // Validar que las fotos no sean IA/gore (fail-open: fallos solo se loguean).
+      try {
+        await validarFotosIA(evOk)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'La foto no pasó la validación automática.'
+        res.status(422).json({ error: msg })
+        return
       }
 
       // Antispam simple: 50/día por usuario.
