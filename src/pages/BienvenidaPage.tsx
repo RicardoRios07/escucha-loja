@@ -11,6 +11,7 @@ export default function BienvenidaPage() {
   const { user, cargando, refrescar } = useAuth()
   const [celular, setCelular] = useState('')
   const [terms, setTerms] = useState(false)
+  const [datos, setDatos] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [enviando, setEnviando] = useState(false)
 
@@ -25,8 +26,8 @@ export default function BienvenidaPage() {
       setError('Celular inválido: usa 10 dígitos empezando con 09 (ej. 0991234567).')
       return
     }
-    if (!terms) {
-      setError('Debes aceptar los términos y condiciones para participar.')
+    if (!terms || !datos) {
+      setError('Debes aceptar los términos y autorizar el tratamiento de tus datos para participar.')
       return
     }
     setEnviando(true)
@@ -35,7 +36,7 @@ export default function BienvenidaPage() {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ celular: limpio, terms: true }),
+        body: JSON.stringify({ celular: limpio, terms: true, datos: true }),
       })
       const d = (await r.json()) as { user?: unknown; error?: string }
       if (!r.ok) {
@@ -96,11 +97,34 @@ export default function BienvenidaPage() {
               className="mt-0.5 h-5 w-5 shrink-0 accent-[#002693]"
             />
             <span>
-              Acepto los{' '}
+              Declaro que soy mayor de edad y acepto los{' '}
               <Link to="/terminos" target="_blank" rel="noreferrer" className="font-bold text-[#002693] underline">
                 términos y condiciones
               </Link>{' '}
-              y el uso de mi celular para contactarme sobre mis reportes. *
+              de Escucha Loja. *
+            </span>
+          </label>
+
+          <label htmlFor="bienvenida-datos" className="flex cursor-pointer items-start gap-3 rounded-xl bg-[#fffaf2] p-3.5 text-sm leading-snug text-[#111]/75">
+            <input
+              id="bienvenida-datos"
+              type="checkbox"
+              checked={datos}
+              onChange={(e) => {
+                setDatos(e.target.checked)
+                if (error) setError(null)
+              }}
+              className="mt-0.5 h-5 w-5 shrink-0 accent-[#002693]"
+            />
+            <span>
+              Autorizo expresamente a la Campaña de Jesús Alejandro Cárdenas López el
+              tratamiento de mis datos personales para contactarme sobre mis reportes
+              por llamada, SMS o WhatsApp, análisis agregado y comunicación de la campaña,
+              según los{' '}
+              <Link to="/terminos" target="_blank" rel="noreferrer" className="font-bold text-[#002693] underline">
+                términos y condiciones
+              </Link>
+              . Puedo revocar esta autorización en info@etherlab.dev. *
             </span>
           </label>
 

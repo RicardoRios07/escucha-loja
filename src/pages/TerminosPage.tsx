@@ -24,15 +24,38 @@ export default function TerminosPage() {
           </p>
         </section>
         <section>
-          <h2 className="font-extrabold text-[#111]">2. Tu cuenta</h2>
+          <h2 className="font-extrabold text-[#111]">2. Responsable y encargado del tratamiento</h2>
           <p className="mt-1">
-            Entras con tu cuenta de Google. Guardamos tu nombre, correo, número celular
-            y la fecha en que aceptaste estos términos. Usamos tu celular solo para
-            contactarte sobre tus reportes. Nunca lo publicamos.
+            Responsable del tratamiento: Campaña de Jesús Alejandro Cárdenas López,
+            quien determina las finalidades descritas en estos términos.
+            Encargado del tratamiento: ETHERLAB S.A.S., RUC 1191798608001,
+            que opera la plataforma por cuenta del responsable.
+            Para ejercer tus derechos escribe a info@etherlab.dev.
           </p>
         </section>
         <section>
-          <h2 className="font-extrabold text-[#111]">3. Lo que publicamos</h2>
+          <h2 className="font-extrabold text-[#111]">3. Tu cuenta y base legal</h2>
+          <p className="mt-1">
+            Entras con tu cuenta de Google. La base legal del tratamiento de tus datos
+            es tu consentimiento libre, expreso, informado e inequívoco, que otorgas al
+            aceptar estos términos y la autorización de tratamiento de datos en la
+            pantalla de bienvenida. Puedes revocar tu consentimiento en cualquier momento
+            escribiendo a info@etherlab.dev.
+          </p>
+        </section>
+        <section>
+          <h2 className="font-extrabold text-[#111]">4. Datos que tratamos y finalidades</h2>
+          <p className="mt-1">
+            Tratamos tu nombre, correo, número celular, tus reportes y evidencia, y la
+            fecha y versión de tu aceptación. Los usamos únicamente para: (a) contactarte
+            sobre tus reportes por llamada, SMS o WhatsApp; (b) análisis agregado para
+            priorización de problemas de la ciudad; (c) comunicación de la campaña.
+            Cualquier finalidad distinta requerirá una nueva versión de estos términos
+            y tu nueva aceptación.
+          </p>
+        </section>
+        <section>
+          <h2 className="font-extrabold text-[#111]">5. Lo que publicamos</h2>
           <p className="mt-1">
             En el mapa y los resúmenes solo aparecen el problema, el sector aproximado
             (parroquia/barrio) y la evidencia. Tu nombre, correo, cédula y celular
@@ -40,7 +63,7 @@ export default function TerminosPage() {
           </p>
         </section>
         <section>
-          <h2 className="font-extrabold text-[#111]">4. Tu evidencia</h2>
+          <h2 className="font-extrabold text-[#111]">6. Tu evidencia</h2>
           <p className="mt-1">
             Al adjuntar fotos o videos declaras que son tuyos o que tienes derecho a
             compartirlos, y autorizas su publicación en el mapa de la campaña. No subas
@@ -49,18 +72,29 @@ export default function TerminosPage() {
           </p>
         </section>
         <section>
-          <h2 className="font-extrabold text-[#111]">5. Uso responsable</h2>
+          <h2 className="font-extrabold text-[#111]">7. Uso responsable</h2>
           <p className="mt-1">
             Reporta hechos reales. Los aportes falsos o con contenido ofensivo pueden
-            ser descartados por el equipo de revisión.
+            ser descartados por el equipo de revisión. Esta plataforma está dirigida
+            únicamente a personas mayores de edad.
           </p>
         </section>
         <section>
-          <h2 className="font-extrabold text-[#111]">6. Tus derechos</h2>
+          <h2 className="font-extrabold text-[#111]">8. Conservación y transferencias</h2>
           <p className="mt-1">
-            Puedes pedir la eliminación de tus datos y reportes en cualquier momento
-            escribiendo al equipo de la campaña. Al eliminar tu cuenta se borran tu
-            perfil y tus reportes asociados.
+            Conservamos tus datos mientras tu cuenta esté activa y los eliminamos cuando
+            pidas la eliminación de tu cuenta. Usamos a Google únicamente para el inicio
+            de sesión con tu cuenta; no cedemos tus datos a otros terceros.
+          </p>
+        </section>
+        <section>
+          <h2 className="font-extrabold text-[#111]">9. Tus derechos</h2>
+          <p className="mt-1">
+            Tienes derecho de acceso, actualización, rectificación, eliminación, revocación
+            del consentimiento, portabilidad y oposición sobre tus datos personales, conforme
+            a la Ley Orgánica de Protección de Datos Personales del Ecuador. Para ejercerlos,
+            o para pedir la eliminación de tu cuenta y reportes asociados, escribe a
+            info@etherlab.dev.
           </p>
         </section>
       </div>

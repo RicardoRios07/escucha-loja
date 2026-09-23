@@ -500,6 +500,10 @@ export default function LojaMap3D({
       })
       mapRef.current = map
       mapInstance = map
+      // Gancho solo-dev para QA automatizado (Playwright): proyectar puntos.
+      if (import.meta.env.DEV) {
+        ;(window as unknown as { __lojaMap?: unknown }).__lojaMap = map
+      }
       map.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), 'bottom-right')
     map.addControl(new maplibregl.ScaleControl({ unit: 'metric' }), 'bottom-right')
 
@@ -764,8 +768,25 @@ export default function LojaMap3D({
         })
 
         // Click en parroquia: foco (filtra reportes) + vuelo a su bbox.
-        const focusByNombre = (nombre: unknown) => {
+        // Si el click también tocó un pin/burbuja/cluster, ese handler manda
+        // (si no, abrir un popup filtraría el resto de reportes).
+        const focusByNombre = (nombre: unknown, point?: { x: number; y: number }) => {
           if (typeof nombre !== 'string') return
+          if (point) {
+            let ocupados: unknown[] = []
+            try {
+              // Caja con tolerancia (el click de maplibre usa clickTolerance;
+              // el ancla del pin no siempre tiene píxel del icono encima).
+              const a = new maplibregl.Point(point.x - 8, point.y - 8)
+              const b = new maplibregl.Point(point.x + 8, point.y + 8)
+              ocupados = map.queryRenderedFeatures([a, b], {
+                layers: ['reports-pins', 'reports-pins-fallback', 'cluster-bubbles', 'cluster-counts'],
+              })
+            } catch {
+              /* mapa aún sin esas capas */
+            }
+            if (ocupados.length > 0) return
+          }
           const p = PARROQUIAS.find((x) => x.nombre === nombre)
           if (!p) return
           setFocusParroquia(p.id)
@@ -783,7 +804,7 @@ export default function LojaMap3D({
             map.getCanvas().style.cursor = ''
           })
           map.on('click', hitId, (event) => {
-            focusByNombre(event.features?.[0]?.properties?.nombre)
+            focusByNombre(event.features?.[0]?.properties?.nombre, event.point)
           })
         }
       } catch {
@@ -1092,7 +1113,7 @@ export default function LojaMap3D({
           {focusParroquia && (
             <button
               type="button"
-              className="loja-map-status-pill"
+              className="loja-map-focus-pill"
               onClick={() => setFocusParroquia(null)}
               title="Quitar filtro de parroquia"
               aria-label={`Quitar filtro: ${PARROQUIA_POR_ID[focusParroquia]?.nombre ?? 'parroquia'}`}

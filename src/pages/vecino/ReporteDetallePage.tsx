@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { ArrowLeft, CalendarDays, Check, MapPin, Share2, Trash2 } from 'lucide-react'
 import MediaThumb from '../../components/escucha/MediaThumb'
 import { getBarrioAprox } from '../../lib/escucha/store'
-import { borrarReporte, useMisReportes } from '../../lib/escucha/repo'
+import { borrarReporte, useMisReportes, useReportesPublicos } from '../../lib/escucha/repo'
 import { deleteMedia, isMediaRef } from '../../lib/escucha/media'
 import { categoriaColor, gravedadColor } from '../../lib/escucha/geo'
 import PageBanner from '../../components/escucha/PageBanner'
@@ -13,10 +13,13 @@ export default function ReporteDetallePage() {
   const navigate = useNavigate()
   const [copiado, setCopiado] = useState(false)
   const [borrando, setBorrando] = useState(false)
-  const { datos: mios, cargando, recargar } = useMisReportes()
-  const d = mios.find((x) => x.id === id)
+  const { datos: mios, cargando: cargandoMios, recargar } = useMisReportes()
+  const { datos: publicos, cargando: cargandoPublicos } = useReportesPublicos()
+  const cargando = cargandoMios || cargandoPublicos
+  const d = mios.find((x) => x.id === id) ?? publicos.find((x) => x.id === id)
+  const esPropio = !!d && mios.some((x) => x.id === d.id)
 
-  if (cargando && mios.length === 0) {
+  if (cargando && !d) {
     return (
       <main className="mx-auto w-full max-w-md px-5 pt-10 text-center">
         <p className="text-lg font-black text-[#111]" role="status">Cargando reporte…</p>
@@ -28,7 +31,7 @@ export default function ReporteDetallePage() {
     return (
       <main className="mx-auto w-full max-w-md px-5 pt-10 text-center">
         <p className="text-lg font-black text-[#111]">Reporte no encontrado</p>
-        <p className="mt-1 text-sm text-[#111]/55">Pudo haber sido eliminado de este dispositivo.</p>
+        <p className="mt-1 text-sm text-[#111]/55">Pudo haber sido eliminado por su autor.</p>
         <button
           onClick={() => navigate(-1)}
           className="mt-5 inline-flex min-h-[48px] items-center rounded-full bg-[#002693] px-6 text-sm font-bold text-white active:scale-[0.98]"
@@ -172,7 +175,7 @@ export default function ReporteDetallePage() {
           {copiado ? <Check size={16} aria-hidden="true" /> : <Share2 size={16} aria-hidden="true" />}
           {copiado ? 'Enlace copiado' : 'Compartir'}
         </button>
-        {d && (
+        {esPropio && (
           <button
             onClick={async () => {
               if (!window.confirm('¿Eliminar este reporte? Se borrará de tu cuenta con su evidencia.')) return

@@ -8,11 +8,9 @@ import {
   CircleDashed,
   Cpu,
   Droplets,
-  MessageSquareText,
   Sparkles,
   Star,
   TrendingUp,
-  TriangleAlert,
   Wrench,
 } from 'lucide-react'
 import { PanelCard, PanelPage } from '../../components/escucha/PanelPage'
@@ -20,7 +18,6 @@ import { generateAnalysis, type AnalysisReport, type LecturaUnificada } from '..
 import {
   getClusters,
   getDailySeries,
-  getScoredDenuncias,
 } from '../../lib/escucha/store'
 import { useReportesAdmin } from '../../lib/escucha/repo'
 import { LLMProvider } from '../../lib/escucha/llmProvider'
@@ -112,8 +109,6 @@ export default function AnalisisPage() {
   const lectura: LecturaUnificada = snapshotIA?.resultado ?? reporte.lectura
   const conIA = snapshotIA !== null
   const criticalCount = ctx.denuncias.filter((d) => d.encuesta.gravedad === 'Crítica').length
-  const movilidadCount = ctx.denuncias.filter((d) => d.categoriaLabel === 'Movilidad Urbana').length
-  const movilidadPct = ctx.denuncias.length ? Math.round((movilidadCount / ctx.denuncias.length) * 100) : 0
 
   const graveOrd: Record<string, number> = { Baja: 1, Media: 2, Alta: 3, Crítica: 4 }
 
@@ -160,10 +155,6 @@ export default function AnalisisPage() {
 
   const maxSectoresCasos = Math.max(1, ...sectoresUnificados.map((s) => s.casos))
 
-  const maxPriority = ctx.denuncias.length
-    ? Math.max(0, ...getScoredDenuncias(ctx.denuncias, getClusters(ctx.denuncias)).map((d) => d._score ?? 0))
-    : 0
-
   const severityCounts = ['Crítica', 'Alta', 'Media', 'Baja'].map((level) => ({
     level,
     count: ctx.denuncias.filter((d) => d.encuesta.gravedad === level).length,
@@ -192,7 +183,7 @@ export default function AnalisisPage() {
     return acc
   }, { start: 0, segments: [] }).segments.join(', ')
 
-  const dailySeries = getDailySeries(ctx.denuncias, 10)
+  const dailySeries = getDailySeries(ctx.denuncias, 30)
   const maxDaily = Math.max(1, ...dailySeries.values)
   const linePoints = dailySeries.values
     .map((value, index) => {
@@ -225,60 +216,10 @@ export default function AnalisisPage() {
           Cargando análisis…
         </p>
       ) : null}
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-          {[
-            {
-              label: 'Total de aportes',
-              value: reporte.total,
-              accent: 'text-[#002693]',
-              icon: <MessageSquareText size={18} className="text-[#002693]" aria-hidden="true" />,
-              color: 'bg-[#eef4ff]',
-            },
-            {
-              label: 'Casos críticos',
-              value: criticalCount,
-              accent: 'text-[#ef4444]',
-              icon: <TriangleAlert size={18} className="text-[#ef4444]" aria-hidden="true" />,
-              color: 'bg-[#fff0f0]',
-            },
-            {
-              label: 'Movilidad urbana',
-              value: `${movilidadPct}%`,
-              accent: 'text-[#002693]',
-              icon: <BusFront size={18} className="text-[#002693]" aria-hidden="true" />,
-              color: 'bg-[#edf5ff]',
-            },
-            {
-              label: 'Prioridad máxima',
-              value: `${Math.min(100, Math.max(0, Math.round(maxPriority)))} / 100`,
-              accent: 'text-[#f7b500]',
-              icon: <Star size={18} className="text-[#f7b500]" aria-hidden="true" />,
-              color: 'bg-[#fff7df]',
-            },
-          ].map((item) => (
-            <div key={item.label} className="rounded-[20px] border border-[#e2e9f6] bg-white p-4 shadow-sm">
-              <div className="flex items-center justify-between gap-2">
-                <div className={`grid h-10 w-10 place-items-center rounded-xl ${item.color}`}>
-                  {item.icon}
-                </div>
-              </div>
-
-              <div className="mt-4 flex items-end justify-between gap-3">
-                <div>
-                  <p className="text-[13px] font-semibold text-[#5d6f92]">{item.label}</p>
-                  <p className={`mt-2 text-[clamp(2rem,2vw,2.8rem)] font-black tracking-[-0.05em] text-[#1d2a3d] ${item.accent}`}>
-                    {item.value}
-                  </p>
-                </div>
-                <div className="h-10 w-14 overflow-hidden rounded-full bg-[#edf3ff] p-1">
-                  <div className="h-full w-full rounded-full bg-gradient-to-r from-[#1f3dac] via-[#4d75ff] to-[#93b2ff]" />
-                </div>
-              </div>
-            </div>
-          ))}
-        </section>
-
-        <section className="mt-5 grid gap-4 xl:grid-cols-[1.1fr_1.5fr_1.1fr]">
+      <p className="num mt-1 text-[13px] font-bold text-[#5d6f92]" aria-label="Contexto del análisis">
+        {reporte.total} {reporte.total === 1 ? 'aporte' : 'aportes'} · {criticalCount} {criticalCount === 1 ? 'crítico' : 'críticos'} · últimos 30 días
+      </p>
+      <section className="mt-5 grid gap-4 xl:grid-cols-[1.1fr_1.5fr_1.1fr]">
           <div className="rounded-[22px] border border-[#e2e9f6] bg-[#f2f8ff] p-4 shadow-sm">
             <div className="flex items-center gap-3 text-[#002693]">
               <div className="grid h-9 w-9 place-items-center rounded-xl bg-white">
@@ -312,7 +253,7 @@ export default function AnalisisPage() {
 
           <PanelCard
             icon={TrendingUp}
-            title="Tendencia de aportes"
+            title="Tendencia · 30 días"
             action={
               <div className="flex gap-2 text-[11px] font-bold text-[#5d6f92]">
                 <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-[#002693]" /> Total</span>
@@ -353,9 +294,11 @@ export default function AnalisisPage() {
             </div>
 
             <div className="mt-2 flex items-center justify-between text-[11px] font-bold text-[#66759a]">
-              {dailySeries.labels.map((label) => (
-                <span key={label}>{label}</span>
-              ))}
+              {dailySeries.labels
+                .filter((_, i) => i % 5 === 0 || i === dailySeries.labels.length - 1)
+                .map((label) => (
+                  <span key={label}>{label}</span>
+                ))}
             </div>
           </PanelCard>
 
@@ -506,7 +449,7 @@ export default function AnalisisPage() {
           </PanelCard>
         </section>
 
-        <section className="mt-5 grid gap-4 xl:grid-cols-[1.8fr_0.9fr]">
+        <section className="mt-5">
           <PanelCard className="min-w-0" icon={Cpu} title="Recomendaciones">
             <div className="mt-4 overflow-x-auto rounded-2xl border border-[#e5ebf7]">
               <table className="w-full min-w-[600px] border-collapse text-left text-[12px]">
@@ -553,30 +496,6 @@ export default function AnalisisPage() {
               </table>
             </div>
           </PanelCard>
-
-          <aside className="min-w-0 rounded-[22px] border border-[#e2e9f6] bg-[#edf5ff] p-4 shadow-sm">
-            <div className="flex items-center gap-2 text-[#1b2b4d]">
-              <div className="grid h-9 w-9 place-items-center rounded-xl bg-white">
-                <AlertTriangle size={18} className="text-[#002693]" aria-hidden="true" />
-              </div>
-              <h2 className="text-[18px] font-black">Enfócate en lo más urgente</h2>
-            </div>
-
-            <div className="mt-4 rounded-2xl bg-white p-4">
-              <p className="text-[13px] leading-relaxed text-[#42557d]">{lectura.enfoqueUrgente}</p>
-            </div>
-
-            <button
-              onClick={() => {
-                setVerSectores(true)
-                document.getElementById('sectores')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-              }}
-              className="mt-5 inline-flex items-center gap-2 rounded-full bg-[#002693] px-4 py-2.5 text-[12px] font-black text-white shadow-sm transition-transform hover:-translate-y-0.5"
-            >
-              Ver detalle por sector
-              <ArrowRight size={14} aria-hidden="true" />
-            </button>
-          </aside>
         </section>
     </PanelPage>
   )

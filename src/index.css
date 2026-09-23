@@ -473,6 +473,10 @@
 .loja-map-status-pill { align-self: flex-start; padding: 6px 12px; border: 1px solid var(--map-line); border-radius: 999px; background: rgba(255, 255, 255, 0.95); color: #002693; font-size: 12px; font-weight: 800; box-shadow: 0 2px 8px rgba(0, 38, 147, 0.18); }
 .loja-map-embedded .loja-map-status-pill { display: none; }
 
+/* Foco parroquial: siempre visible (también en embedded) para poder quitarlo. */
+.loja-map-focus-pill { align-self: flex-start; padding: 6px 12px; border: 2px solid #002693; border-radius: 999px; background: #002693; color: #ffffff; font-size: 12px; font-weight: 800; box-shadow: 0 2px 8px rgba(0, 38, 147, 0.35); cursor: pointer; }
+.loja-map-focus-pill:hover { background: #0033c4; }
+
 .loja-map-toggles { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; margin-left: auto; }
 .loja-map-toggle { padding: 8px 14px; border: 2px solid #002693; border-radius: 100px; background: #ffffff; color: #002693; font: inherit; font-size: 12px; font-weight: 700; cursor: pointer; box-shadow: 2px 3px 0 rgba(0, 38, 147, 0.14); }
 .loja-map-toggle[aria-pressed="true"] { border-color: #FE4102; color: #FE4102; }

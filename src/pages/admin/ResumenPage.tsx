@@ -6,21 +6,11 @@ import {
   RotateCcw,
   Search,
   SlidersHorizontal,
-  Star,
   Table2,
   TrendingUp,
   TriangleAlert,
   X,
 } from 'lucide-react'
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  Tooltip,
-} from 'chart.js'
-import { Line } from 'react-chartjs-2'
 import MediaThumb from '../../components/escucha/MediaThumb'
 import AdminDetalleModal from '../../components/escucha/AdminDetalleModal'
 import { PanelCard, PanelPage } from '../../components/escucha/PanelPage'
@@ -39,8 +29,6 @@ import { useReportesAdmin } from '../../lib/escucha/repo'
 import { PARROQUIAS } from '../../data/parroquias'
 import { categoriaColor, gravedadColor } from '../../lib/escucha/geo'
 import type { MvpDenuncia } from '../../lib/escucha/types'
-
-ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, Tooltip)
 
 function norm(s: string) {
   return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
@@ -135,20 +123,16 @@ export default function ResumenPage() {
     const criticas = todas.filter((d) => d.encuesta.gravedad === 'Crítica').length
     const porCat: Record<string, number> = {}
     for (const d of todas) porCat[d.categoriaLabel] = (porCat[d.categoriaLabel] || 0) + 1
-    const topCat = Object.entries(porCat).sort((a, b) => (b[1] as number) - (a[1] as number))[0]
     const serie = getDailySeries(todas, 30)
     const wow = serie.wow
     const ya = getYaReportadoStats(todas)
     const categorias = ['Todas', ...Object.keys(porCat)]
 
-    return { total, criticas, porCat, topCat, wow, ya, categorias, ordenadas, serie }
+    return { total, criticas, porCat, wow, ya, categorias, ordenadas }
   }, [todas, fCategoria, fParroquia, fGravedad, fRango, orden, busquedaDeb])
 
   const totalPages = Math.max(1, Math.ceil(datos.ordenadas.length / perPage))
   const pagina = datos.ordenadas.slice((page - 1) * perPage, page * perPage)
-  const sinMovimiento =
-    typeof window !== 'undefined' &&
-    window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
   const alternarOrden = (clave: Orden['clave']) => () => {
     setOrden((o) => (o.clave === clave ? { clave, dir: o.dir === 'desc' ? 'asc' : 'desc' } : { clave, dir: 'desc' }))
@@ -204,14 +188,6 @@ export default function ResumenPage() {
       color: 'bg-[#fff0f0]',
     },
     {
-      label: 'Top categoría',
-      value: datos.topCat ? (datos.topCat[0] as string).split(' ')[0] : '—',
-      chip: datos.topCat ? `${datos.topCat[1]} casos` : 'sin datos',
-      accent: 'text-[#002693]',
-      icon: <Star size={18} className="text-[#f7b500]" aria-hidden="true" />,
-      color: 'bg-[#fff7df]',
-    },
-    {
       label: 'Tendencia WoW',
       value: datos.wow === null ? '—' : `${datos.wow > 0 ? '+' : ''}${datos.wow}%`,
       chip: 'últimos 30d',
@@ -226,7 +202,7 @@ export default function ResumenPage() {
     <PanelPage
       eyebrow="Panel · resumen"
       title="Resumen"
-      subtitle="Vista ejecutiva del estado de los aportes ciudadanos: indicadores, categorías, tendencia y detalle filtrable."
+      subtitle="Vista ejecutiva del estado de los aportes ciudadanos: indicadores, categorías y detalle filtrable."
     >
       {error ? (
         <p role="alert" className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
@@ -239,7 +215,7 @@ export default function ResumenPage() {
         </p>
       ) : null}
       {/* KPIs */}
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <section className="grid gap-4 md:grid-cols-3">
         {kpis.map((item) => (
           <div key={item.label} className="rounded-[20px] border border-[#e2e9f6] bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between gap-2">
@@ -382,48 +358,6 @@ export default function ResumenPage() {
           </p>
         )}
       </section>
-
-      {/* Tendencia 30 días */}
-      <PanelCard
-        className="mt-5"
-        icon={TrendingUp}
-        title="Aportes por día"
-        action={
-          <span className="num rounded-full bg-[#f5f7fb] px-2.5 py-1 text-[11px] font-black text-[#002693]">
-            {datos.wow === null ? '30 días' : `${datos.wow > 0 ? '+' : ''}${datos.wow}% WoW`}
-          </span>
-        }
-      >
-        <div className="mt-3 h-[180px] rounded-2xl bg-[#f5f8ff] p-3">
-          <Line
-            data={{
-              labels: datos.serie.labels,
-              datasets: [
-                {
-                  label: 'Aportes',
-                  data: datos.serie.values,
-                  borderColor: '#002693',
-                  backgroundColor: 'rgba(0,38,147,0.12)',
-                  fill: true,
-                  tension: 0.35,
-                  pointRadius: 2,
-                  pointBackgroundColor: '#002693',
-                },
-              ],
-            }}
-            options={{
-              responsive: true,
-              maintainAspectRatio: false,
-              animation: sinMovimiento ? false : undefined,
-              plugins: { legend: { display: false }, tooltip: { enabled: true } },
-              scales: {
-                x: { grid: { display: false }, ticks: { maxTicksLimit: 8, font: { size: 10 } } },
-                y: { beginAtZero: true, ticks: { precision: 0, font: { size: 10 } }, grid: { color: 'rgba(0,0,0,0.06)' } },
-              },
-            }}
-          />
-        </div>
-      </PanelCard>
 
       {/* Tabla */}
       <PanelCard

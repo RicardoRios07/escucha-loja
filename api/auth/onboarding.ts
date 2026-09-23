@@ -1,6 +1,6 @@
 /**
  * POST /api/auth/onboarding — primer login: guarda celular + acepta términos.
- * Body: { celular: "09…" | "+593…", terms: true }
+ * Body: { celular: "09…" | "+593…", terms: true, datos: true }
  */
 import {
   currentUser,
@@ -27,7 +27,7 @@ export default async function handler(req: ApiReq, res: ApiRes) {
       res.status(401).json({ error: 'Sin sesión' })
       return
     }
-    const body = (req.body ?? {}) as { celular?: unknown; terms?: unknown }
+    const body = (req.body ?? {}) as { celular?: unknown; terms?: unknown; datos?: unknown }
     const celular = normalizarCelular(body.celular)
     if (!celular) {
       res.status(400).json({
@@ -35,8 +35,8 @@ export default async function handler(req: ApiReq, res: ApiRes) {
       })
       return
     }
-    if (body.terms !== true) {
-      res.status(400).json({ error: 'Debes aceptar los términos y condiciones.' })
+    if (body.terms !== true || body.datos !== true) {
+      res.status(400).json({ error: 'Debes aceptar los términos y autorizar el tratamiento de tus datos.' })
       return
     }
     await db().query(
