@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Eye } from 'lucide-react'
 import LojaMap3D, { type LojaReport } from '../../components/escucha/LojaMap3D'
@@ -12,8 +12,23 @@ const POR_PAGINA = 8
 
 /** Resumen público: agregados y mapa sin datos personales (sin nombres ni correos). */
 export default function ComunidadPage() {
-  const { datos: denuncias, cargando } = useReportesPublicos()
+  const { datos: denuncias, cargando, recargar } = useReportesPublicos()
   const [visibles, setVisibles] = useState(POR_PAGINA)
+
+  // Recarga al volver a la pestaña para que un reporte recién creado aparezca.
+  useEffect(() => {
+    const refrescar = () => recargar()
+    window.addEventListener('focus', refrescar)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') refrescar()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      window.removeEventListener('focus', refrescar)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const { total, porCategoria, top, recientes, reports } = useMemo(() => {
     const stats = getStats(denuncias)
     const top = Object.entries(stats.porCategoria).sort((a, b) => (b[1] as number) - (a[1] as number))[0]

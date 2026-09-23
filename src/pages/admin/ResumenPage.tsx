@@ -2,7 +2,8 @@ import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   ChevronDown,
-  Download,
+  FileSpreadsheet,
+  FileText,
   MessageSquareText,
   RotateCcw,
   Search,
@@ -12,11 +13,13 @@ import {
   TriangleAlert,
   X,
 } from 'lucide-react'
+import * as XLSX from 'xlsx'
+import { jsPDF } from 'jspdf'
+import autoTable from 'jspdf-autotable'
 import MediaThumb from '../../components/escucha/MediaThumb'
 import AdminDetalleModal from '../../components/escucha/AdminDetalleModal'
 import { PanelCard, PanelPage } from '../../components/escucha/PanelPage'
 import {
-  exportToCSV,
   getBarrioAprox,
   getClusters,
   getDailySeries,
@@ -46,17 +49,71 @@ const RANGOS = [
 
 type Orden = { clave: 'fecha' | 'score'; dir: 'asc' | 'desc' }
 
-function csvExtendido(
-  rows: { score: number; sector: string; parroquia: string; d: Parameters<typeof exportToCSV>[0][number] }[],
-): string {
-  const base = exportToCSV(rows.map((r) => r.d) as Parameters<typeof exportToCSV>[0])
-  const lineas = base.split('\n')
-  const head = `${lineas[0]},parroquia,sector,score`
-  const body = lineas.slice(1).map((l, i) => `${l},"${rows[i]?.parroquia ?? ''}","${rows[i]?.sector ?? ''}",${rows[i]?.score ?? 0}`)
-  return [head, ...body].join('\n')
+type FilaOrdenada = { score: number; sector: string; parroquia: string; d: MvpDenuncia }
+
+function nombreCiudadano(d: MvpDenuncia): string {
+  return d.contacto?.nombre || d.nombreCiudadano || ''
 }
 
-/** Tab Resumen: KPIs + filtros + cards por categoría + tabla ordenable + CSV. */
+function celularCiudadano(d: MvpDenuncia): string {
+  return d.contacto?.celular || ''
+}
+
+function nombreArchivo(ext: string): string {
+  return `jesus-escucha-aportes-${new Date().toISOString().slice(0, 10)}.${ext}`
+}
+
+function exportarExcel(rows: FilaOrdenada[]) {
+  const filas = rows.map(({ d, score, sector, parroquia }) => ({
+    Fecha: new Date(d.createdAt).toLocaleString('es-EC'),
+    Categoría: d.categoriaLabel,
+    Descripción: d.descripcion,
+    Ciudadano: nombreCiudadano(d),
+    Celular: celularCiudadano(d),
+    Email: d.contacto?.email || '',
+    Parroquia: parroquia,
+    Sector: sector,
+    Dirección: [d.encuesta.direccionPrincipal, d.encuesta.calleSecundaria].filter(Boolean).join(' '),
+    Gravedad: d.encuesta.gravedad,
+    Frecuencia: d.encuesta.frecuencia,
+    Score: score,
+  }))
+  const ws = XLSX.utils.json_to_sheet(filas)
+  ws['!cols'] = [
+    { wch: 18 }, { wch: 22 }, { wch: 50 }, { wch: 24 }, { wch: 14 },
+    { wch: 28 }, { wch: 20 }, { wch: 20 }, { wch: 30 }, { wch: 10 },
+    { wch: 12 }, { wch: 8 },
+  ]
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Aportes')
+  XLSX.writeFile(wb, nombreArchivo('xlsx'))
+}
+
+function exportarPDF(rows: FilaOrdenada[]) {
+  const doc = new jsPDF({ orientation: 'landscape' })
+  doc.setFontSize(14)
+  doc.text('Jesús Escucha — Detalle de reportes', 14, 14)
+  doc.setFontSize(10)
+  doc.text(`Generado: ${new Date().toLocaleString('es-EC')} · ${rows.length} reportes`, 14, 21)
+  autoTable(doc, {
+    startY: 26,
+    head: [['Fecha', 'Categoría', 'Ciudadano', 'Celular', 'Sector', 'Gravedad', 'Score']],
+    body: rows.map(({ d, score, sector }) => [
+      new Date(d.createdAt).toLocaleDateString('es-EC'),
+      d.categoriaLabel,
+      nombreCiudadano(d) || '—',
+      celularCiudadano(d) || '—',
+      sector,
+      d.encuesta.gravedad,
+      score,
+    ]),
+    styles: { fontSize: 8 },
+    headStyles: { fillColor: [0, 38, 147] },
+  })
+  doc.save(nombreArchivo('pdf'))
+}
+
+/** Tab Resumen: KPIs + filtros + cards por categoría + tabla ordenable + Excel/PDF. */
 export default function ResumenPage() {
   const [fCategoria, setFCategoria] = useState('Todas')
   const [fParroquia, setFParroquia] = useState<(typeof PARROQUIA_OPTS)[number]>('Todas')
@@ -67,6 +124,7 @@ export default function ResumenPage() {
   const [busqueda, setBusqueda] = useState('')
   const [busquedaDeb, setBusquedaDeb] = useState('')
   const [detalle, setDetalle] = useState<{ d: MvpDenuncia; score: number; sector: string } | null>(null)
+  const [filtrosAbiertos, setFiltrosAbiertos] = useState(false)
   const perPage = 8
 
   useEffect(() => {
@@ -95,6 +153,7 @@ export default function ResumenPage() {
     const dias = RANGOS.find((r) => r.id === fRango)?.dias ?? 0
     const corte = dias > 0 ? Date.now() - dias * 86400000 : 0
     const q = norm(busquedaDeb.trim())
+    const qDigitos = busquedaDeb.replace(/\D/g, '')
     const filtradas = conSector.filter(
       ({ d, sector, parroquia }) =>
         (fCategoria === 'Todas' || d.categoriaLabel === fCategoria) &&
@@ -107,7 +166,9 @@ export default function ResumenPage() {
           norm(sector).includes(q) ||
           norm(d.encuesta.direccionPrincipal).includes(q) ||
           norm(d.encuesta.calleSecundaria).includes(q) ||
-          norm(d.encuesta.referencia).includes(q)),
+          norm(d.encuesta.referencia).includes(q) ||
+          norm(nombreCiudadano(d)).includes(q) ||
+          (qDigitos !== '' && (celularCiudadano(d).replace(/\D/g, '').includes(qDigitos)))),
     )
     const ordenadas = [...filtradas].sort((a, b) =>
       orden.clave === 'score'
@@ -157,17 +218,6 @@ export default function ResumenPage() {
 
   const alternarOrden = (clave: Orden['clave']) => () => {
     setOrden((o) => (o.clave === clave ? { clave, dir: o.dir === 'desc' ? 'asc' : 'desc' } : { clave, dir: 'desc' }))
-  }
-
-  const descargarCSV = () => {
-    const csv = csvExtendido(datos.ordenadas)
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `escucha-loja-aportes-${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(url)
   }
 
   const filtrosActivos = useMemo(() => {
@@ -268,8 +318,32 @@ export default function ResumenPage() {
         className="mt-5"
         icon={SlidersHorizontal}
         title="Filtros"
+        action={
+          filtrosActivos > 0 ? (
+            <span className="rounded-full bg-[#002693] px-2.5 py-1 text-[11px] font-black text-white">
+              {filtrosActivos} activo{filtrosActivos === 1 ? '' : 's'}
+            </span>
+          ) : undefined
+        }
       >
-        <div className="mt-3 flex flex-col gap-3">
+        {/* Toggle solo mobile: filtros colapsados por defecto */}
+        <button
+          type="button"
+          onClick={() => setFiltrosAbiertos((v) => !v)}
+          aria-expanded={filtrosAbiertos}
+          className="mt-3 inline-flex min-h-[42px] w-full items-center justify-between rounded-xl border border-[#dfe7f5] bg-white px-4 text-[13px] font-bold text-[#1f2b4d] shadow-sm md:hidden"
+        >
+          <span className="inline-flex items-center gap-2">
+            <SlidersHorizontal size={15} aria-hidden="true" className="text-[#002693]" />
+            {filtrosAbiertos ? 'Ocultar filtros' : 'Mostrar filtros'}
+          </span>
+          <ChevronDown size={16} aria-hidden="true" className={`text-[#8aa0c4] transition-transform ${filtrosAbiertos ? 'rotate-180' : ''}`} />
+        </button>
+
+        <div className={`${filtrosAbiertos ? 'block' : 'hidden'} mt-3 md:block md:mt-3`}>
+        <div className="flex flex-col gap-3">
+          {/* Buscador + selects: una fila compacta en desktop */}
+          <div className="grid grid-cols-1 gap-2.5 md:grid-cols-[minmax(0,1fr)_170px_170px_150px] md:items-end">
           {/* Buscador */}
           <label className="relative block">
             <Search size={16} aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#8aa0c4]" />
@@ -277,8 +351,8 @@ export default function ResumenPage() {
             <input
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
-              placeholder="Buscar por texto, calle, referencia…"
-              className="h-[44px] w-full rounded-xl border border-[#dfe7f5] bg-white pl-9 pr-10 text-[13px] shadow-sm outline-none placeholder:text-[#8aa0c4] focus:border-[#002693] focus:ring-2 focus:ring-[#002693]/20"
+              placeholder="Buscar por texto, calle, nombre o celular…"
+              className="h-[42px] w-full rounded-xl border border-[#dfe7f5] bg-white pl-9 pr-10 text-[13px] shadow-sm outline-none placeholder:text-[#8aa0c4] focus:border-[#002693] focus:ring-2 focus:ring-[#002693]/20"
             />
             {busqueda && (
               <button
@@ -293,7 +367,6 @@ export default function ResumenPage() {
           </label>
 
           {/* Selects con etiqueta */}
-          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
             {(
               [
                 { label: 'Categoría', value: fCategoria, onChange: (v: string) => { setFCategoria(v); setPage(1) }, options: datos.categorias },
@@ -320,8 +393,9 @@ export default function ResumenPage() {
             ))}
           </div>
 
-          {/* Período segmentado + CSV */}
-          <div className="flex flex-col gap-1">
+          {/* Período + acciones */}
+          <div className="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+            <div className="flex flex-col gap-1 md:w-[300px]">
             <span className="text-[10px] font-black uppercase tracking-[0.12em] text-[#8aa0c4]">Período</span>
             <div className="grid grid-cols-4 gap-1 rounded-xl border border-[#dfe7f5] bg-white p-1 shadow-sm" role="group" aria-label="Rango de fechas">
               {RANGOS.map((r) => (
@@ -335,8 +409,9 @@ export default function ResumenPage() {
                 </button>
               ))}
             </div>
+            </div>
 
-            <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {(filtrosActivos > 0 || busquedaDeb.trim() !== '') && (
                 <button
                   type="button"
@@ -348,14 +423,22 @@ export default function ResumenPage() {
                 </button>
               )}
               <button
-                onClick={descargarCSV}
+                onClick={() => exportarExcel(datos.ordenadas)}
+                className="inline-flex min-h-[36px] flex-1 items-center justify-center gap-2 rounded-full bg-[#0b8f4a] px-3.5 py-2 text-[12px] font-bold text-white shadow-sm transition-transform hover:-translate-y-0.5 sm:flex-none"
+              >
+                <FileSpreadsheet size={13} aria-hidden="true" />
+                Excel
+              </button>
+              <button
+                onClick={() => exportarPDF(datos.ordenadas)}
                 className="inline-flex min-h-[36px] flex-1 items-center justify-center gap-2 rounded-full bg-[#002693] px-3.5 py-2 text-[12px] font-bold text-white shadow-sm transition-transform hover:-translate-y-0.5 sm:flex-none"
               >
-                <Download size={13} aria-hidden="true" />
-                Exportar CSV
+                <FileText size={13} aria-hidden="true" />
+                PDF
               </button>
             </div>
           </div>
+        </div>
         </div>
       </PanelCard>
 
@@ -384,7 +467,7 @@ export default function ResumenPage() {
       <PanelCard
         className="mt-5"
         icon={Table2}
-        title="Detalle de aportes"
+        title="Detalle de reportes"
         action={
           <span className="rounded-full bg-[#edf2ff] px-2.5 py-1 text-[11px] font-black text-[#002693]">
             {datos.ordenadas.length} resultados
@@ -393,10 +476,11 @@ export default function ResumenPage() {
       >
         <div className="mt-3 overflow-hidden rounded-2xl border border-[#e5ebf7]">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left text-[13px]">
+            <table className="w-full min-w-[760px] text-left text-[13px]">
               <thead className="bg-[#f4f7fd] text-[#586d8c]">
                 <tr className="text-[11px] uppercase tracking-[0.08em]">
                   <th className="p-3 font-black">Reporte</th>
+                  <th className="p-3 font-black">Ciudadano</th>
                   <th className="p-3 font-black">Parroquia / Sector</th>
                   <th className="p-3 font-black">Gravedad</th>
                   <th className="p-3 font-black" aria-sort={orden.clave === 'score' ? (orden.dir === 'desc' ? 'descending' : 'ascending') : 'none'}>
@@ -433,6 +517,19 @@ export default function ResumenPage() {
                         </span>
                       </button>
                     </td>
+                    <td className="max-w-[180px] p-3">
+                      {(() => {
+                        const nombre = nombreCiudadano(d)
+                        const celular = celularCiudadano(d)
+                        if (!nombre && !celular) return <span className="text-[#8aa0c4]">—</span>
+                        return (
+                          <span className="block">
+                            {nombre ? <span className="block truncate text-[13px] font-bold text-[#1f2b4d]">{nombre}</span> : null}
+                            {celular ? <span className="block whitespace-nowrap text-[12px] tabular-nums text-[#5d6f92]">{celular}</span> : null}
+                          </span>
+                        )
+                      })()}
+                    </td>
                     <td className="whitespace-nowrap p-3 font-semibold text-[#42557d]">
                       {sector}
                       {parroquia ? <span className="block text-[11px] font-normal text-[#8aa0c4]">{parroquia}</span> : null}
@@ -450,7 +547,7 @@ export default function ResumenPage() {
                 ))}
                 {pagina.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="p-8 text-center text-sm text-[#8aa0c4]">
+                    <td colSpan={6} className="p-8 text-center text-sm text-[#8aa0c4]">
                       Sin resultados para estos filtros.
                     </td>
                   </tr>

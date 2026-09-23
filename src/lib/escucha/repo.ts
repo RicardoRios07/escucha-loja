@@ -165,7 +165,7 @@ export async function eliminarEvidencia(url: string): Promise<void> {
 }
 
 export async function borrarReporte(id: string): Promise<void> {
-  const r = await fetch(`/api/reportes?id=${encodeURIComponent(id)}`, {
+  const r = await fetch(`/api/reportes/${encodeURIComponent(id)}`, {
     method: 'DELETE',
     credentials: 'same-origin',
   })
@@ -174,17 +174,22 @@ export async function borrarReporte(id: string): Promise<void> {
 }
 
 // Caché en memoria (60 s) compartida por los hooks.
-const cache = new Map<string, { at: number; data: MvpDenuncia[] }>()
+// La versión evita que un fetch iniciado antes de una mutación
+// re-cachee datos viejos al resolverse después de invalidar.
+const cache = new Map<string, { at: number; data: MvpDenuncia[]; version: number }>()
+let cacheVersion = 0
 
 function invalidarCache(): void {
+  cacheVersion++
   cache.clear()
 }
 
 async function conCache(clave: string, fetcher: () => Promise<MvpDenuncia[]>): Promise<MvpDenuncia[]> {
   const hit = cache.get(clave)
-  if (hit && Date.now() - hit.at < 60_000) return hit.data
+  if (hit && hit.version === cacheVersion && Date.now() - hit.at < 60_000) return hit.data
+  const versionAlIniciar = cacheVersion
   const data = await fetcher()
-  cache.set(clave, { at: Date.now(), data })
+  if (versionAlIniciar === cacheVersion) cache.set(clave, { at: Date.now(), data, version: cacheVersion })
   return data
 }
 

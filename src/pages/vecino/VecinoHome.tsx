@@ -51,7 +51,7 @@ export default function VecinoHome() {
         variant="full"
         className="rounded-2xl"
         hideLogoDesktop
-        eyebrow="Escucha Loja"
+        eyebrow="Jesús Escucha"
         title={user?.nombre ? `Hola, ${user.nombre.split(' ')[0]}` : 'Hola, vecino'}
         desc="Tu voz construye la ciudad: reporta lo que ves en tu barrio."
         actions={

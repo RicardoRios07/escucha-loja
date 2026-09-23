@@ -328,23 +328,3 @@ export function getInsights(denuncias: MvpDenuncia[], clusters: Cluster[]) {
 
   return bullets.slice(0, 3)
 }
-
-export function exportToCSV(denuncias: MvpDenuncia[]): string {
-  const headers = ["id", "fecha", "categoria", "gravedad", "frecuencia", "tiempo", "afectaMovilidad", "afectaSalud", "yaReportado", "lat", "lng", "direccion", "descripcion"]
-  const rows = denuncias.map(d => [
-    d.id,
-    new Date(d.createdAt).toISOString(),
-    `"${d.categoriaLabel.replace(/"/g, '""')}"`,
-    d.encuesta.gravedad,
-    d.encuesta.frecuencia,
-    d.encuesta.tiempoProblema,
-    d.encuesta.afectaMovilidad ? 1 : 0,
-    d.encuesta.afectaSalud ? 1 : 0,
-    d.encuesta.yaReportadoMunicipio ? 1 : 0,
-    d.lat,
-    d.lng,
-    `"${(d.encuesta.direccionPrincipal + " " + d.encuesta.calleSecundaria).replace(/"/g, '""')}"`,
-    `"${d.descripcion.replace(/"/g, '""').slice(0, 120)}"`
-  ].join(","))
-  return "\uFEFF" + [headers.join(","), ...rows].join("\n")
-}

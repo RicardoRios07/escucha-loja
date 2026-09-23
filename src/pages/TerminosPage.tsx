@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import Logo from '../components/escucha/Logo'
 
-/** Términos y condiciones v1 de Escucha Loja. */
+/** Términos y condiciones v1 de Jesús Escucha. */
 export default function TerminosPage() {
   return (
     <main className="mx-auto w-full max-w-2xl bg-white px-5 py-10 pb-[env(safe-area-inset-bottom)]">
@@ -11,12 +11,12 @@ export default function TerminosPage() {
         <h1 className="mt-4 text-[clamp(1.8rem,6vw,2.4rem)] font-black tracking-tight text-[#111]">
           Términos y condiciones
         </h1>
-        <p className="mt-1 text-sm text-[#111]/50">Versión 1 · Escucha Loja</p>
+        <p className="mt-1 text-sm text-[#111]/50">Versión 1 · Jesús Escucha</p>
       </div>
 
       <div className="mt-8 flex flex-col gap-5 text-[15px] leading-relaxed text-[#111]/80">
         <section>
-          <h2 className="font-extrabold text-[#111]">1. Qué es Escucha Loja</h2>
+          <h2 className="font-extrabold text-[#111]">1. Qué es Jesús Escucha</h2>
           <p className="mt-1">
             Un canal ciudadano para reportar problemas de la ciudad (agua, saneamiento
             ambiental, movilidad urbana y servicios ciudadanos) con foto o video, ubicación y un relato breve.

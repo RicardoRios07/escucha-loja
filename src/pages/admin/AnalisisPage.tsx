@@ -373,17 +373,17 @@ export default function AnalisisPage() {
                   aria-hidden="true"
                   className={`text-[#002693] transition-transform ${verSectores ? 'rotate-180' : ''}`}
                 />
-                Clusters heurísticos
+                Focos detectados
               </button>
               <p className="mt-1 text-[11px] leading-relaxed text-[#8aa0c4]">
-                {reporte.prioridades.length} cluster{reporte.prioridades.length === 1 ? '' : 'es'} agrupado
-                {reporte.prioridades.length === 1 ? '' : 's'} por cercanía (~550 m), ordenados por casos y gravedad.
+                {reporte.prioridades.length} zona{reporte.prioridades.length === 1 ? '' : 's'} con casos cercanos
+                (a menos de ~550 m), ordenadas por cantidad de casos y gravedad.
               </p>
 
               {verSectores && (
                 <div className="mt-3 space-y-2 rounded-2xl border border-[#e5ebf7] bg-[#f7f9ff] p-3">
                   <p className="text-[11px] font-black uppercase tracking-[0.08em] text-[#5e6e8d]">
-                    Vista cruda del motor
+                    Detalle técnico
                   </p>
                   {reporte.prioridades.map((p) => (
                     <div key={`${p.titulo}-${p.sector}-${p.casos}`} className="text-[12px] leading-relaxed text-[#3d4d6e]">

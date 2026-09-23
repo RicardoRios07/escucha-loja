@@ -101,7 +101,7 @@ export default function BienvenidaPage() {
               <Link to="/terminos" target="_blank" rel="noreferrer" className="font-bold text-[#002693] underline">
                 términos y condiciones
               </Link>{' '}
-              de Escucha Loja. *
+              de Jesús Escucha. *
             </span>
           </label>
 

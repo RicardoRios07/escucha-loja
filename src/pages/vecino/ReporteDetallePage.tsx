@@ -12,8 +12,8 @@ export default function ReporteDetallePage() {
   const navigate = useNavigate()
   const [copiado, setCopiado] = useState(false)
   const [borrando, setBorrando] = useState(false)
-  const { datos: mios, cargando: cargandoMios, recargar } = useMisReportes()
-  const { datos: publicos, cargando: cargandoPublicos } = useReportesPublicos()
+  const { datos: mios, cargando: cargandoMios, recargar: recargarMios } = useMisReportes()
+  const { datos: publicos, cargando: cargandoPublicos, recargar: recargarPublicos } = useReportesPublicos()
   const cargando = cargandoMios || cargandoPublicos
   const d = mios.find((x) => x.id === id) ?? publicos.find((x) => x.id === id)
   const esPropio = !!d && mios.some((x) => x.id === d.id)
@@ -139,7 +139,7 @@ export default function ReporteDetallePage() {
             const url = window.location.href
             try {
               if (navigator.share) {
-                await navigator.share({ title: 'Reporte en Escucha Loja', text: d.descripcion, url })
+                await navigator.share({ title: 'Reporte en Jesús Escucha', text: d.descripcion, url })
               } else {
                 throw new Error('sin-share')
               }
@@ -181,7 +181,8 @@ export default function ReporteDetallePage() {
               setBorrando(true)
               try {
                 await borrarReporte(d.id)
-                recargar()
+                recargarMios()
+                recargarPublicos()
                 navigate('/vecino/mis-reportes')
               } catch {
                 setBorrando(false)

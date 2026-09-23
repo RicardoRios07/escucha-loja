@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Plus } from 'lucide-react'
 import PageBanner from '../../components/escucha/PageBanner'
@@ -9,7 +9,22 @@ import { categoriaColor, gravedadColor } from '../../lib/escucha/geo'
 
 export default function MisReportesPage() {
   const [filtro, setFiltro] = useState('Todas')
-  const { datos: miasTodas, cargando } = useMisReportes()
+  const { datos: miasTodas, cargando, recargar } = useMisReportes()
+
+  // Recarga al volver a la pestaña para que un reporte recién creado aparezca.
+  useEffect(() => {
+    const refrescar = () => recargar()
+    window.addEventListener('focus', refrescar)
+    const onVis = () => {
+      if (document.visibilityState === 'visible') refrescar()
+    }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      window.removeEventListener('focus', refrescar)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const { mias, categorias } = useMemo(() => {
     const ordenadas = [...miasTodas].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
@@ -26,7 +41,7 @@ export default function MisReportesPage() {
         variant="compact"
         className="rounded-2xl"
         hideLogoDesktop
-        eyebrow="Escucha Loja"
+        eyebrow="Jesús Escucha"
         title="Mis reportes"
         desc={cargando && miasTodas.length === 0 ? 'Cargando tus reportes…' : `${miasTodas.length} reportes vinculados a tu cuenta`}
       />

@@ -14,7 +14,7 @@ export default function EncuestaPage() {
   const [open, setOpen] = useState(true)
   const [lastId, setLastId] = useState<string | null>(null)
   const [enviado, setEnviado] = useState<MvpDenuncia | null>(null)
-  const { datos: publicos } = useReportesPublicos()
+  const { datos: publicos, recargar: recargarPublicos } = useReportesPublicos()
   const volver = () => {
     const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0
     if (idx > 0) navigate(-1)
@@ -90,5 +90,5 @@ export default function EncuestaPage() {
       </div>
     )
   }
-  return <EncuestaWizard inline onComplete={(id, denuncia) => { setLastId(id ?? null); setEnviado(denuncia ?? null); setOpen(false) }} onCancel={volver} />
+  return <EncuestaWizard inline onComplete={(id, denuncia) => { recargarPublicos(); setLastId(id ?? null); setEnviado(denuncia ?? null); setOpen(false) }} onCancel={volver} />
 }

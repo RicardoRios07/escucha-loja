@@ -58,7 +58,7 @@ export default function CuentaPage() {
             Acerca de
           </h2>
           <p className="mt-2 text-[13px] leading-relaxed text-[#111]/65">
-            Escucha Loja es un canal directo con la ciudad: tus reportes alimentan
+            Jesús Escucha es un canal directo con la ciudad: tus reportes alimentan
             el mapa, las estadísticas y la priorización que revisamos cada semana.
             Tus datos personales nunca se publican.
           </p>

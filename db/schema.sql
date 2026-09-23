@@ -1,4 +1,4 @@
--- schema.sql — Escucha Loja (Neon Postgres + PostGIS)
+-- schema.sql — Jesús Escucha (Neon Postgres + PostGIS)
 -- Aplicar con: psql "$DATABASE_URL_UNPOOLED" -f db/schema.sql
 -- Idempotente: puede correrse más de una vez.
 
