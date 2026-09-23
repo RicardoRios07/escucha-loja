@@ -30,8 +30,6 @@
     "framer-motion": "^13.1.0",
     "google-auth-library": "^11.1.0",
     "jose": "^6.2.12",
-    "jspdf": "^2.5.2",
-    "jspdf-autotable": "^3.8.4",
     "lucide-react": "^0.400.0",
     "maplibre-gl": "^6.9.1",
     "openai": "^7.20.0",

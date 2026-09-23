@@ -3,7 +3,6 @@ import { useSearchParams } from 'react-router-dom'
 import {
   ChevronDown,
   FileSpreadsheet,
-  FileText,
   MessageSquareText,
   RotateCcw,
   Search,
@@ -14,8 +13,6 @@ import {
   X,
 } from 'lucide-react'
 import * as XLSX from 'xlsx'
-import { jsPDF } from 'jspdf'
-import autoTable from 'jspdf-autotable'
 import MediaThumb from '../../components/escucha/MediaThumb'
 import AdminDetalleModal from '../../components/escucha/AdminDetalleModal'
 import { PanelCard, PanelPage } from '../../components/escucha/PanelPage'
@@ -89,31 +86,7 @@ function exportarExcel(rows: FilaOrdenada[]) {
   XLSX.writeFile(wb, nombreArchivo('xlsx'))
 }
 
-function exportarPDF(rows: FilaOrdenada[]) {
-  const doc = new jsPDF({ orientation: 'landscape' })
-  doc.setFontSize(14)
-  doc.text('Jesús Escucha — Detalle de reportes', 14, 14)
-  doc.setFontSize(10)
-  doc.text(`Generado: ${new Date().toLocaleString('es-EC')} · ${rows.length} reportes`, 14, 21)
-  autoTable(doc, {
-    startY: 26,
-    head: [['Fecha', 'Categoría', 'Ciudadano', 'Celular', 'Sector', 'Gravedad', 'Score']],
-    body: rows.map(({ d, score, sector }) => [
-      new Date(d.createdAt).toLocaleDateString('es-EC'),
-      d.categoriaLabel,
-      nombreCiudadano(d) || '—',
-      celularCiudadano(d) || '—',
-      sector,
-      d.encuesta.gravedad,
-      score,
-    ]),
-    styles: { fontSize: 8 },
-    headStyles: { fillColor: [0, 38, 147] },
-  })
-  doc.save(nombreArchivo('pdf'))
-}
-
-/** Tab Resumen: KPIs + filtros + cards por categoría + tabla ordenable + Excel/PDF. */
+/** Tab Resumen: KPIs + filtros + cards por categoría + tabla ordenable + Excel. */
 export default function ResumenPage() {
   const [fCategoria, setFCategoria] = useState('Todas')
   const [fParroquia, setFParroquia] = useState<(typeof PARROQUIA_OPTS)[number]>('Todas')
@@ -428,13 +401,6 @@ export default function ResumenPage() {
               >
                 <FileSpreadsheet size={13} aria-hidden="true" />
                 Excel
-              </button>
-              <button
-                onClick={() => exportarPDF(datos.ordenadas)}
-                className="inline-flex min-h-[36px] flex-1 items-center justify-center gap-2 rounded-full bg-[#002693] px-3.5 py-2 text-[12px] font-bold text-white shadow-sm transition-transform hover:-translate-y-0.5 sm:flex-none"
-              >
-                <FileText size={13} aria-hidden="true" />
-                PDF
               </button>
             </div>
           </div>
