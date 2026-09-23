@@ -1,5 +1,5 @@
 /** DELETE /api/reportes?id= — elimina un reporte propio (o cualquiera si admin). */
-import { currentUser, db, rowsOf, type ApiReq, type ApiRes } from '../_lib'
+import { currentUser, db, rowsOf, type ApiReq, type ApiRes } from '../_lib.js'
 
 export default async function handler(req: ApiReq, res: ApiRes) {
   try {

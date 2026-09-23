@@ -1,5 +1,5 @@
 /** POST /api/auth/logout — borra la cookie de sesión. */
-import { clearSessionCookie, type ApiReq, type ApiRes } from '../_lib'
+import { clearSessionCookie, type ApiReq, type ApiRes } from '../_lib.js'
 
 export default async function handler(req: ApiReq, res: ApiRes) {
   if ((req.method || 'GET').toUpperCase() !== 'POST') {

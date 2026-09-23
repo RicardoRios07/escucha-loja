@@ -2,8 +2,8 @@
  * GET /api/reportes/mios — reportes del usuario en sesión (con direcciones
  * y estado; sin datos de otros usuarios).
  */
-import { cargarEvidencia, currentUser, db, rowsOf, type ApiReq, type ApiRes } from '../_lib'
-import type { PublicRow } from '../reportes'
+import { cargarEvidencia, currentUser, db, rowsOf, type ApiReq, type ApiRes } from '../_lib.js'
+import type { PublicRow } from '../reportes.js'
 
 export interface MiRow extends PublicRow {
   direccion_principal: string

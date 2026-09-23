@@ -14,7 +14,7 @@ import {
   verificarPassword,
   type ApiReq,
   type ApiRes,
-} from '../../_lib'
+} from '../../_lib.js'
 
 export default async function handler(req: ApiReq, res: ApiRes) {
   try {

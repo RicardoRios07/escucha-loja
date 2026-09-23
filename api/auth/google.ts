@@ -1,5 +1,5 @@
 /** GET /api/auth/google — inicia el login: 302 a Google con state anti-CSRF. */
-import { googleAuthUrl, rateOk, type ApiReq, type ApiRes } from '../_lib'
+import { googleAuthUrl, rateOk, type ApiReq, type ApiRes } from '../_lib.js'
 import { randomBytes } from 'node:crypto'
 
 export default async function handler(_req: ApiReq, res: ApiRes) {

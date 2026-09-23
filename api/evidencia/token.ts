@@ -5,7 +5,7 @@
  * de las Functions con videos de hasta 25 MB).
  */
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client'
-import { baseUrl, currentUser, type ApiReq, type ApiRes } from '../_lib'
+import { baseUrl, currentUser, type ApiReq, type ApiRes } from '../_lib.js'
 
 const MAX_BYTES = 25 * 1024 * 1024
 const ALLOWED = [

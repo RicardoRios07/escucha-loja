@@ -1,5 +1,5 @@
 /** GET /api/auth/config — ¿está configurado Google OAuth? (para el botón de login) */
-import type { ApiReq, ApiRes } from '../_lib'
+import type { ApiReq, ApiRes } from '../_lib.js'
 
 export default async function handler(_req: ApiReq, res: ApiRes) {
   res.status(200).json({
