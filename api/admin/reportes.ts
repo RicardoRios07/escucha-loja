@@ -3,7 +3,7 @@
  * del autor (solo rol admin). Sin cédulas: no existen en la BD.
  */
 import { cargarEvidencia, currentUser, db, rowsOf, type ApiReq, type ApiRes } from '../_lib.js'
-import type { MiRow } from '../reportes/mios.js'
+import type { MiRow } from '../reportes.js'
 
 export interface AdminRow extends MiRow {
   autor_nombre: string | null

@@ -270,5 +270,5 @@ export function useReportesAdmin(): UsoReportes {
 }
 
 export function useMisReportes(): UsoReportes {
-  return useReportes('mios', () => cargar('/api/reportes/mios'))
+  return useReportes('mios', () => cargar('/api/reportes?mios=1'))
 }

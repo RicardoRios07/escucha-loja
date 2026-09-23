@@ -33,13 +33,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refrescar = useCallback(async () => {
     try {
-      const r = await fetch('/api/auth/me', { credentials: 'same-origin' })
-      if (!r.ok) {
-        setUser(null)
-        return
-      }
-      const d = (await r.json()) as { user: SessionUser | null }
-      setUser(d.user)
+      const r = await fetch('/api/auth/estado', { credentials: 'same-origin' })
+      const d = (await r.json()) as { user: SessionUser | null; google?: boolean }
+      if (typeof d.google === 'boolean') setGoogleConfigured(d.google)
+      setUser(r.ok ? d.user : null)
     } catch {
       setUser(null)
     }
@@ -48,15 +45,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let vivo = true
     void (async () => {
-      try {
-        const c = await fetch('/api/auth/config', { credentials: 'same-origin' })
-        if (vivo && c.ok) {
-          const d = (await c.json()) as { google?: boolean }
-          setGoogleConfigured(d.google === true)
-        }
-      } catch {
-        /* sin backend: login deshabilitado hasta configurar */
-      }
       await refrescar()
       if (vivo) setCargando(false)
     })()
