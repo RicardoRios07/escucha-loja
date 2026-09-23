@@ -2,7 +2,7 @@
  * GET /api/admin/reportes — todos los reportes con direcciones y contacto
  * del autor (solo rol admin). Sin cédulas: no existen en la BD.
  */
-import { cargarEvidencia, currentUser, db, rowsOf, type ApiReq, type ApiRes } from '../_lib.js'
+import { cargarEvidencia, currentUser, db, rateOkDb, rowsOf, type ApiReq, type ApiRes } from '../_lib.js'
 import type { MiRow } from '../reportes.js'
 
 export interface AdminRow extends MiRow {
@@ -25,6 +25,10 @@ export default async function handler(req: ApiReq, res: ApiRes) {
     }
     if (me.rol !== 'admin') {
       res.status(403).json({ error: 'Solo administradores.' })
+      return
+    }
+    if (!(await rateOkDb(req, 'admin-reportes', 60))) {
+      res.status(429).json({ error: 'Demasiadas solicitudes, intenta en un minuto.' })
       return
     }
     const rows = rowsOf<Omit<AdminRow, 'evidencia'>>(

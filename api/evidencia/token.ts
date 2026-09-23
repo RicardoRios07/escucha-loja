@@ -8,7 +8,7 @@
  */
 import { del } from '@vercel/blob'
 import { handleUpload, type HandleUploadBody } from '@vercel/blob/client'
-import { baseUrl, currentUser, esUrlBlobPropia, type ApiReq, type ApiRes } from '../_lib.js'
+import { baseUrl, currentUser, db, esUrlBlobPropia, rateOkDb, rowsOf, type ApiReq, type ApiRes } from '../_lib.js'
 
 const MAX_BYTES = 25 * 1024 * 1024
 const ALLOWED = [
@@ -42,11 +42,26 @@ export default async function handler(req: ApiReq, res: ApiRes) {
       res.status(503).json({ error: 'Storage de evidencia no configurado.' })
       return
     }
+    if (!(await rateOkDb(req, 'evidencia-token', 60))) {
+      res.status(429).json({ error: 'Demasiadas solicitudes, intenta en un minuto.' })
+      return
+    }
     const body = req.body as HandleUploadBody & { action?: unknown; url?: unknown }
     // Borrado de huérfanos (quitar un adjunto antes de enviar).
     if (body.action === 'delete') {
       if (typeof body.url !== 'string' || !esUrlBlobPropia(body.url)) {
         res.status(400).json({ error: 'URL inválida.' })
+        return
+      }
+      // Solo el dueño: si el blob ya está asociado a reportes de otro usuario, negar.
+      const duenos = rowsOf<{ user_id: string }>(
+        await db().query(
+          `select r.user_id from evidencias e join reportes r on r.id = e.reporte_id where e.storage_url = $1`,
+          [body.url],
+        ),
+      )
+      if (duenos.length > 0 && duenos.some((d) => d.user_id !== me.id)) {
+        res.status(403).json({ error: 'No puedes borrar evidencia de otro reporte.' })
         return
       }
       await del(body.url)

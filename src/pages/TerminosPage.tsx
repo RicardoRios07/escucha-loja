@@ -26,7 +26,7 @@ export default function TerminosPage() {
         <section>
           <h2 className="font-extrabold text-[#111]">2. Responsable y encargado del tratamiento</h2>
           <p className="mt-1">
-            Responsable del tratamiento: Campaña de Jesús Alejandro Cárdenas López,
+            Responsable del tratamiento: Campaña de Jesús Cárdenas López,
             quien determina las finalidades descritas en estos términos.
             Encargado del tratamiento: ETHERLAB S.A.S., RUC 1191798608001,
             que opera la plataforma por cuenta del responsable.

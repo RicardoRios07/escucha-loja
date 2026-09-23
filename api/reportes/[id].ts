@@ -1,6 +1,6 @@
 /** DELETE /api/reportes?id= — elimina un reporte propio (o cualquiera si admin). */
 import { del } from '@vercel/blob'
-import { currentUser, db, rowsOf, type ApiReq, type ApiRes } from '../_lib.js'
+import { currentUser, db, rateOkDb, rowsOf, type ApiReq, type ApiRes } from '../_lib.js'
 
 export default async function handler(req: ApiReq, res: ApiRes) {
   try {
@@ -11,6 +11,10 @@ export default async function handler(req: ApiReq, res: ApiRes) {
     const me = await currentUser(req)
     if (!me) {
       res.status(401).json({ error: 'Sin sesión' })
+      return
+    }
+    if (!(await rateOkDb(req, 'reportes-delete', 60))) {
+      res.status(429).json({ error: 'Demasiadas solicitudes, intenta en un minuto.' })
       return
     }
     const q = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id

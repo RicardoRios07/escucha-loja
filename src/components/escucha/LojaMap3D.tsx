@@ -289,8 +289,6 @@ export default function LojaMap3D({
   const mapRef = useRef<maplibregl.Map | null>(null)
   const cardPopupRef = useRef<maplibregl.Popup | null>(null)
   const locationMarkerRef = useRef<maplibregl.Marker | null>(null)
-  const terrainOnRef = useRef(!WEAK_DEVICE)
-  const terrainBusyRef = useRef(false)
   const spritesOkRef = useRef(false)
 
   // Muestreo de color de techos (roofs.ts) → feature-state, sin re-serializar.
@@ -300,10 +298,8 @@ export default function LojaMap3D({
   const [inView, setInView] = useState(false)
   const [mapLoaded, setMapLoaded] = useState(false)
 
-  // Modo del mapa: 3D = terreno + edificios + volúmenes ML; 2D = plano sin volúmenes.
-  const [dim, setDim] = useState<'2d' | '3d'>(WEAK_DEVICE ? '2d' : '3d')
-  const dimRef = useRef(dim)
-  dimRef.current = dim
+  // Modo del mapa: siempre 3D (terreno + edificios + volúmenes ML).
+  const dimRef = useRef<'2d' | '3d'>('3d')
   const [busy, setBusy] = useState<null | 'location'>(null)
   const [toast, setToast] = useState('')
   // Filtros colapsados por defecto en móvil, abiertos en desktop.
@@ -1010,57 +1006,6 @@ export default function LojaMap3D({
     )
   }
 
-  const handleDimChange = (next: '2d' | '3d') => {
-    if (next === dimRef.current) return
-    const map = mapRef.current
-    // Bloqueado durante una transición en curso para no desincronizar estado y terreno.
-    if (!map || terrainBusyRef.current || map.isMoving()) return
-    setDim(next)
-    dimRef.current = next
-    terrainBusyRef.current = true
-    map.stop()
-    const finishTransition = (terrainEnabled: boolean) => {
-      map.resize()
-      terrainOnRef.current = terrainEnabled
-      terrainBusyRef.current = false
-    }
-
-    // Volúmenes ML: solo visibles en modo 3D.
-    try {
-      if (map.getLayer('buildings-3d')) {
-        map.setFilter('buildings-3d', next === '3d' ? null : ['!=', ['get', 'ml'], 1])
-      }
-    } catch {
-      /* capa aún no creada */
-    }
-
-    if (next === '2d') {
-      // Primero nivelamos la cámara para no dejarla bajo el terreno al retirarlo.
-      map.easeTo({ pitch: 0, duration: 450 })
-      map.once('moveend', () => {
-        try {
-          map.setTerrain(null)
-          finishTransition(false)
-        } catch {
-          map.jumpTo({ center: LOJA_CENTER, zoom: 13, pitch: 0, bearing: -12 })
-          map.setTerrain(null)
-          finishTransition(false)
-        }
-      })
-      return
-    }
-
-    try {
-      map.setTerrain({ source: 'terrain-dem', exaggeration: 1.3 })
-      map.resize()
-      map.easeTo({ pitch: TERRAIN_PITCH, duration: 650 })
-      map.once('moveend', () => finishTransition(true))
-    } catch {
-      map.setTerrain(null)
-      finishTransition(false)
-    }
-  }
-
   const toggleChip = (key: string) => {
     setFiltros((current) => ({ ...current, [key]: !current[key] }))
   }
@@ -1083,24 +1028,6 @@ export default function LojaMap3D({
             <button className="loja-map-toggle" type="button" disabled={busy === 'location'} onClick={handleUseLocation}>
               Usar ubicación actual
             </button>
-            <div className="loja-map-dim" role="group" aria-label="Modo del mapa (2D plano o 3D con terreno)">
-              <button
-                type="button"
-                className="loja-map-toggle"
-                aria-pressed={dim === '2d'}
-                onClick={() => handleDimChange('2d')}
-              >
-                2D
-              </button>
-              <button
-                type="button"
-                className="loja-map-toggle"
-                aria-pressed={dim === '3d'}
-                onClick={() => handleDimChange('3d')}
-              >
-                3D
-              </button>
-            </div>
           </div>
         </div>
 

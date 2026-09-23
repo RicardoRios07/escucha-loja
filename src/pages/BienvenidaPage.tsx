@@ -117,7 +117,7 @@ export default function BienvenidaPage() {
               className="mt-0.5 h-5 w-5 shrink-0 accent-[#002693]"
             />
             <span>
-              Autorizo expresamente a la Campaña de Jesús Alejandro Cárdenas López el
+              Autorizo expresamente a la Campaña de Jesús Cárdenas López el
               tratamiento de mis datos personales para contactarme sobre mis reportes
               por llamada, SMS o WhatsApp, análisis agregado y comunicación de la campaña,
               según los{' '}

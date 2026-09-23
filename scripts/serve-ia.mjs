@@ -1,6 +1,7 @@
 // Servidor local de verificación: expone /api/analizar (handler real de
 // api/analizar.ts) y sirve el build estatico de dist/ con fallback SPA.
-// Uso: node --env-file=.env.local scripts/serve-ia.mjs
+// Uso: IA_SIN_AUTH=1 node --env-file=.env.local scripts/serve-ia.mjs
+// (el handler exige sesión admin salvo IA_SIN_AUTH=1, solo para verificación local).
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { dirname, extname, join, normalize } from 'node:path'

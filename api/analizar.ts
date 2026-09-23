@@ -1,5 +1,6 @@
 import OpenAI from 'openai'
 import type { IncomingMessage, ServerResponse } from 'node:http'
+import { currentUser, rateOkDb, type ApiReq } from './_lib.js'
 
 /**
  * Endpoint serverless (Vercel) que llama al proveedor de IA (OpenCode Zen /
@@ -43,10 +44,25 @@ Responde ÚNICAMENTE con este JSON, sin texto adicional ni markdown:
   "notaHonesta": string | null
 }`
 
+const MAX_BODY = 256 * 1024 // 256 KB: el payload son métricas agregadas, nunca más.
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
+    let size = 0
     let data = ''
-    req.on('data', (c: Buffer) => (data += c.toString()))
+    req.on('data', (c: Buffer) => {
+      size += c.length
+      if (size > MAX_BODY) {
+        reject(new Error('body-muy-grande'))
+        try {
+          req.destroy()
+        } catch {
+          /* noop */
+        }
+        return
+      }
+      data += c.toString()
+    })
     req.on('end', () => resolve(data))
     req.on('error', reject)
   })
@@ -129,16 +145,42 @@ export default async function handler(req: IncomingMessage, res: VercelRes) {
     return
   }
 
+  // Solo administradores con sesión (el panel de Análisis es el único cliente).
+  // IA_SIN_AUTH=1 reserva el uso sin sesión al script local scripts/serve-ia.mjs.
+  if (process.env.IA_SIN_AUTH !== '1') {
+    const apiReq = { method: req.method, headers: req.headers as ApiReq['headers'], query: {} } as ApiReq
+    let admin = false
+    try {
+      const me = await currentUser(apiReq)
+      admin = !!me && me.rol === 'admin'
+      if (admin && !(await rateOkDb(apiReq, 'analizar', 20))) {
+        res.status(429).json({ error: 'demasiadas-solicitudes' })
+        return
+      }
+    } catch {
+      res.status(503).json({ error: 'no-disponible' })
+      return
+    }
+    if (!admin) {
+      res.status(403).json({ error: 'solo-admin' })
+      return
+    }
+  }
+
   const apiKey = process.env.AI_API_KEY
   if (!apiKey) {
-    res.status(503).json({ error: 'no-key', detalle: 'Falta AI_API_KEY en el entorno del servidor.' })
+    res.status(503).json({ error: 'no-key' })
     return
   }
 
   let payload: unknown
   try {
     payload = JSON.parse(await readBody(req))
-  } catch {
+  } catch (e) {
+    if (e instanceof Error && e.message === 'body-muy-grande') {
+      res.status(413).json({ error: 'body-muy-grande' })
+      return
+    }
     res.status(400).json({ error: 'bad-json' })
     return
   }
@@ -161,8 +203,8 @@ export default async function handler(req: IncomingMessage, res: VercelRes) {
 
     const texto = completion.choices?.[0]?.message?.content ?? ''
     res.status(200).json(sanearInsights(extraerJson(texto)))
-  } catch (e) {
-    const detalle = e instanceof Error ? e.message : String(e)
-    res.status(502).json({ error: 'ia-fallida', detalle })
+  } catch {
+    // Sin detalle: no exponer errores del proveedor (keys, cuota, modelo).
+    res.status(502).json({ error: 'ia-fallida' })
   }
 }

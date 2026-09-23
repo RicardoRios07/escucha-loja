@@ -12,6 +12,7 @@ import {
   esUrlBlobPropia,
   FRECUENCIAS,
   GRAVEDADES,
+  rateOkDb,
   rowsOf,
   TIEMPOS,
   type ApiReq,
@@ -114,6 +115,10 @@ export default async function handler(req: ApiReq, res: ApiRes) {
         res.status(403).json({ error: 'Completa tu celular y términos en /bienvenida.' })
         return
       }
+      if (!(await rateOkDb(req, 'reportes-post', 60))) {
+        res.status(429).json({ error: 'Demasiadas solicitudes, intenta en un minuto.' })
+        return
+      }
       const b = (req.body ?? {}) as Record<string, unknown>
       const cat = CATEGORIAS_FIJAS[typeof b.categoria_code === 'string' ? b.categoria_code : '']
       if (!cat) {
@@ -162,19 +167,10 @@ export default async function handler(req: ApiReq, res: ApiRes) {
         return
       }
 
-      // Antispam simple: 50/día por usuario.
-      const ya = rowsOf<{ n: number }>(
-        await db().query(
-          `select count(*)::int as n from reportes
-           where user_id = $1 and created_at > now() - interval '1 day'`,
-          [me.id],
-        ),
-      )
-      if ((ya[0]?.n ?? 0) >= 50) {
-        res.status(429).json({ error: 'Límite diario de reportes alcanzado.' })
-        return
-      }
-
+      // Regla de negocio: 15 aportes/día por usuario + 3 min entre envíos.
+      // Una sola sentencia (atómico): dos envíos simultáneos no la burlan.
+      const LIMITE_DIA = 15
+      const COOLDOWN_S = 180
       const creados = rowsOf<{ id: string }>(
         await db().query(
           `insert into reportes
@@ -182,8 +178,12 @@ export default async function handler(req: ApiReq, res: ApiRes) {
               geom, parroquia_id, barrio_id, gravedad, frecuencia, tiempo_problema,
               afecta_movilidad, afecta_salud, ya_reportado_municipio,
               direccion_principal, calle_secundaria, referencia)
-           values ($1,$2,$3,$4,$5, ST_SetSRID(ST_MakePoint($5,$4),4326)::geography,
-                   $6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+           select $1,$2,$3,$4,$5, ST_SetSRID(ST_MakePoint($5,$4),4326)::geography,
+                   $6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16
+           where (select count(*) from reportes
+                  where user_id = $1 and created_at > now() - interval '1 day') < $17
+             and coalesce((select extract(epoch from (now() - max(created_at)))
+                           from reportes where user_id = $1), 9999) >= $18
            returning id`,
           [
             me.id, typeof b.categoria_code === 'string' ? b.categoria_code : 'agua', descripcion,
@@ -191,11 +191,29 @@ export default async function handler(req: ApiReq, res: ApiRes) {
             bool(b.afecta_movilidad), bool(b.afecta_salud), bool(b.ya_reportado_municipio),
             str(b.direccion_principal, 200) ?? '', str(b.calle_secundaria, 200) ?? '',
             str(b.referencia, 300) ?? '',
+            LIMITE_DIA, COOLDOWN_S,
           ],
         ),
       )
       const nuevoId = creados[0]?.id
-      if (!nuevoId) throw new Error('No se pudo crear el reporte')
+      if (!nuevoId) {
+        const estado = rowsOf<{ n: number; segs: number }>(
+          await db().query(
+            `select (select count(*)::int from reportes
+                     where user_id = $1 and created_at > now() - interval '1 day') as n,
+                    coalesce((select extract(epoch from (now() - max(created_at)))::int
+                              from reportes where user_id = $1), 9999) as segs`,
+            [me.id],
+          ),
+        )
+        if ((estado[0]?.n ?? 0) >= LIMITE_DIA) {
+          res.status(429).json({ error: 'Llegaste al límite de 15 aportes por día.' })
+          return
+        }
+        const esperaMin = Math.max(1, Math.ceil((COOLDOWN_S - (estado[0]?.segs ?? 0)) / 60))
+        res.status(429).json({ error: `Espera ${esperaMin} min antes de enviar otro aporte.` })
+        return
+      }
       for (const e of evOk) {
         await db().query(
           'insert into evidencias (reporte_id, kind, storage_url, duracion_s) values ($1,$2,$3,$4)',

@@ -2,7 +2,7 @@
  * /api/admin/analisis — caché del análisis IA en Neon (un slot global).
  * GET: snapshot actual o 404. POST: guarda (upsert). Solo rol admin.
  */
-import { currentUser, db, rowsOf, type ApiReq, type ApiRes } from '../_lib.js'
+import { currentUser, db, rateOkDb, rowsOf, type ApiReq, type ApiRes } from '../_lib.js'
 
 export default async function handler(req: ApiReq, res: ApiRes) {
   try {
@@ -17,6 +17,10 @@ export default async function handler(req: ApiReq, res: ApiRes) {
     }
     const method = (req.method || 'GET').toUpperCase()
     if (method === 'GET') {
+      if (!(await rateOkDb(req, 'admin-analisis', 60))) {
+        res.status(429).json({ error: 'Demasiadas solicitudes, intenta en un minuto.' })
+        return
+      }
       const rows = rowsOf<Record<string, unknown>>(
         await db().query(
           `select version, fingerprint, aportes_count as "aportesCount",
@@ -58,6 +62,16 @@ export default async function handler(req: ApiReq, res: ApiRes) {
         res.status(400).json({ error: 'Snapshot inválido.' })
         return
       }
+      // Cotas anti-bloat: fingerprint corto y resultado acotado.
+      const resultadoJson = JSON.stringify(b.resultado)
+      if (b.fingerprint.length > 200 || resultadoJson.length > 500_000) {
+        res.status(400).json({ error: 'Snapshot demasiado grande.' })
+        return
+      }
+      if (!(await rateOkDb(req, 'admin-analisis-post', 30))) {
+        res.status(429).json({ error: 'Demasiadas solicitudes, intenta en un minuto.' })
+        return
+      }
       await db().query(
         `insert into analisis_cache (id, version, fingerprint, aportes_count, resultado, updated_at)
          values ('snapshot', $1, $2, $3, $4, now())
@@ -65,7 +79,7 @@ export default async function handler(req: ApiReq, res: ApiRes) {
            version = excluded.version, fingerprint = excluded.fingerprint,
            aportes_count = excluded.aportes_count, resultado = excluded.resultado,
            updated_at = now()`,
-        [b.version, b.fingerprint, b.aportesCount, JSON.stringify(b.resultado)],
+        [b.version, b.fingerprint, b.aportesCount, resultadoJson],
       )
       res.status(200).json({ ok: true })
       return

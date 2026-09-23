@@ -57,12 +57,17 @@ export function rowsOf<T>(r: unknown): T[] {
 
 /** Base pública. localhost siempre gana (dev con `vercel dev` en :3000). */
 export function baseUrl(req: ApiReq): string {
-  const host =
-    (req.headers['x-forwarded-host'] as string) ||
-    (req.headers.host as string) ||
-    ''
+  const fwd = (req.headers['x-forwarded-host'] as string) || ''
+  const h = (req.headers.host as string) || ''
+  const host = fwd || h
   if (host.startsWith('localhost')) return `http://${host}`
-  if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, '')
+  // En producción manda APP_URL: nunca se confía en el Host del header
+  // (evita open-redirects vía x-forwarded-host envenenado).
+  const appUrl = (process.env.APP_URL || '').replace(/\/$/, '')
+  if (appUrl) {
+    const appHost = appUrl.replace(/^https?:\/\//, '')
+    if (appHost) return appUrl.startsWith('http') ? appUrl : `https://${appHost}`
+  }
   const proto = (req.headers['x-forwarded-proto'] as string) || 'https'
   return `${proto}://${host || 'localhost:3000'}`
 }
