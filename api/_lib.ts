@@ -214,7 +214,7 @@ export const CATEGORIAS_FIJAS: Record<string, { id: string; label: string }> = {
     label: 'Movilidad Urbana',
   },
   servicios: {
-    id: 'Servicios Ciudadanos: Trámites, Atención al Vecino y Servicios Administrativos',
+    id: 'Servicios Ciudadanos: Trámites, Atención al Ciudadano y Servicios Administrativos',
     label: 'Servicios ciudadanos',
   },
 }

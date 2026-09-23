@@ -6,6 +6,7 @@ import {
 } from "../../lib/escucha/store"
 import { crearReporte, codigoCategoria } from "../../lib/escucha/repo"
 import { PARROQUIAS, CANTON_BOUNDS } from "../../data/parroquias"
+import { gravedadColor } from "../../lib/escucha/geo"
 import type { CategoriaId, Gravedad, Frecuencia, TiempoProblema, MvpDenuncia } from "../../lib/escucha/types"
 import {
   MAX_MEDIA_FILES, MAX_VIDEO_SECONDS, deleteMedia, getVideoDuration,
@@ -19,15 +20,78 @@ import {
   RiArrowLeftLine, RiArrowRightLine, RiSendPlaneLine, RiUploadCloudLine, RiCloseLine,
   RiMapPinLine, RiPinDistanceLine, RiCheckboxCircleLine, RiRoadMapLine, RiLeafLine, RiDropLine, RiBuildingLine,
   RiSearchLine, RiNavigationLine, RiErrorWarningLine, RiCheckboxCircleFill, RiCameraLine, RiVideoLine,
-  RiArrowDownSLine, RiEditLine
+  RiArrowDownSLine, RiEditLine, RiCarLine, RiHeartPulseLine, RiHistoryLine
 } from "react-icons/ri"
 const ComplaintMap = lazy(() => import("./ComplaintMap"))
+
+/** Modal de salida honesto: guardar conserva el borrador, descartar lo borra. */
+function ConfirmarSalida({
+  completados,
+  onSeguir,
+  onGuardarSalir,
+  onDescartar,
+}: {
+  completados: string[]
+  onSeguir: () => void
+  onGuardarSalir: () => void
+  onDescartar: () => void
+}) {
+  return (
+    <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 p-4">
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="confirm-title"
+        className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl"
+      >
+        <span className="grid h-11 w-11 place-items-center rounded-2xl bg-[#002693]/[0.07] text-[#002693]" aria-hidden="true">
+          <RiPinDistanceLine size={20} />
+        </span>
+        <h4 id="confirm-title" className="mt-3 text-lg font-black text-[#111]">
+          ¿Salir del formulario?
+        </h4>
+        <p className="mt-1 text-sm text-gray-600">
+          Llevas {completados.length} de 5 pasos. Tu progreso queda guardado y podrás retomarlo.
+        </p>
+        {completados.length > 0 && (
+          <ul className="mt-3 flex flex-wrap gap-1.5" aria-label="Avance guardado">
+            {completados.map((c) => (
+              <li key={c} className="rounded-full bg-[#0db954]/10 px-2.5 py-1 text-[11px] font-bold text-green-800">
+                ✓ {c}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-5 flex flex-col gap-2">
+          <button
+            onClick={onGuardarSalir}
+            className="min-h-[52px] w-full rounded-2xl bg-[#002693] font-extrabold text-white active:scale-[0.98]"
+          >
+            Guardar y salir
+          </button>
+          <button
+            onClick={onSeguir}
+            className="min-h-[52px] w-full rounded-2xl border-2 border-black/10 font-bold text-[#111] hover:bg-gray-50 active:scale-[0.98]"
+          >
+            Seguir aquí
+          </button>
+          <button
+            onClick={onDescartar}
+            className="min-h-[44px] w-full rounded-xl text-[13px] font-bold text-[#ef4444]/80 hover:bg-red-50 active:scale-[0.98]"
+          >
+            Descartar todo
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 const categories = [
   { id: "Agua Potable, Alcantarillado Sanitario, Alcantarillado Pluvial" as CategoriaId, name: "Agua y Alcantarillado", icon: RiDropLine, description: "Fugas, alcantarillado sanitario y pluvial." },
   { id: "Recolección de Desechos y Saneamiento Ambiental" as CategoriaId, name: "Saneamiento ambiental", icon: RiLeafLine, description: "Desechos sólidos, limpieza y saneamiento ambiental." },
   { id: "Movilidad Urbana: Bacheo de Calles, Frecuencias, Obstrucciones de aceras, etc." as CategoriaId, name: "Movilidad Urbana", icon: RiRoadMapLine, description: "Baches, señalización, aceras, semáforos, obstrucción de vías y permisos." },
-  { id: "Servicios Ciudadanos: Trámites, Atención al Vecino y Servicios Administrativos" as CategoriaId, name: "Servicios ciudadanos", icon: RiBuildingLine, description: "Trámites, atención al vecino y servicios municipales." },
+  { id: "Servicios Ciudadanos: Trámites, Atención al Ciudadano y Servicios Administrativos" as CategoriaId, name: "Servicios ciudadanos", icon: RiBuildingLine, description: "Trámites, atención al ciudadano y servicios municipales." },
 ]
 
 
@@ -85,7 +149,14 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
   const triggerRef = useRef<HTMLElement | null>(null)
   const [progressFeedback, setProgressFeedback] = useState("")
 
-  // Restaurar borrador
+  // Restaurar borrador (+ refs frescas para el listener global de Escape,
+  // que si no vería el estado del primer render).
+  const formDataRef = useRef(formData)
+  formDataRef.current = formData
+  const stepRef = useRef(step)
+  stepRef.current = step
+  const showConfirmCloseRef = useRef(showConfirmClose)
+  showConfirmCloseRef.current = showConfirmClose
   useEffect(() => {
     try {
       const raw = localStorage.getItem(DRAFT_KEY)
@@ -97,7 +168,14 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
     triggerRef.current = document.activeElement as HTMLElement
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        if (showConfirmClose) setShowConfirmClose(false)
+        if (showConfirmCloseRef.current) {
+          setShowConfirmClose(false)
+          return
+        }
+        const fd = formDataRef.current
+        const st = stepRef.current
+        const hasData = fd.categoryId || fd.descripcion || fd.media.length > 0
+        if (hasData && st < TOTAL_STEPS) setShowConfirmClose(true)
         else handleRequestClose()
       }
     }
@@ -517,7 +595,7 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
 
               <div className="order-5 sticky bottom-0 -mx-4 sm:-mx-6 mt-1 border-t border-black/5 bg-white/90 px-4 sm:px-6 py-3 backdrop-blur md:order-none md:col-span-full">
                 <div className="flex gap-3">
-                  <button onClick={() => setStep(1)} className="min-h-[52px] flex-1 rounded-2xl border font-bold text-gray-600 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#002693] active:scale-[0.98]"><RiArrowLeftLine aria-hidden="true" /> Anterior</button>
+                  <button onClick={() => setStep(1)} className="min-h-[52px] flex-1 inline-flex items-center justify-center gap-2 rounded-2xl border font-bold text-gray-600 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#002693] active:scale-[0.98]"><RiArrowLeftLine aria-hidden="true" /> Anterior</button>
                   <button onClick={handleNext} disabled={!formData.ubicacionConfirmada} aria-describedby={!formData.ubicacionConfirmada ? "map-status" : undefined} className="min-h-[52px] flex-[2] rounded-2xl bg-[#FE4102] text-white font-extrabold shadow-[0_14px_28px_-12px_rgba(254,65,2,0.7)] disabled:opacity-40 disabled:shadow-none focus-visible:ring-2 focus-visible:ring-offset-2 flex items-center justify-center gap-2 active:scale-[0.98]">Siguiente <RiArrowRightLine aria-hidden="true" /></button>
                 </div>
               </div>
@@ -586,7 +664,7 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
 
               <div className="sticky bottom-0 -mx-4 sm:-mx-6 mt-1 border-t border-black/5 bg-white/90 px-4 sm:px-6 py-3 backdrop-blur">
                 <div className="flex gap-3">
-                  <button onClick={() => setStep(2)} disabled={isSubmitting} aria-busy={isSubmitting} className="min-h-[52px] flex-1 rounded-2xl border font-bold text-gray-600 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#002693] disabled:opacity-40 active:scale-[0.98]"><RiArrowLeftLine aria-hidden="true" /> Anterior</button>
+                  <button onClick={() => setStep(2)} disabled={isSubmitting} aria-busy={isSubmitting} className="min-h-[52px] flex-1 inline-flex items-center justify-center gap-2 rounded-2xl border font-bold text-gray-600 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#002693] disabled:opacity-40 active:scale-[0.98]"><RiArrowLeftLine aria-hidden="true" /> Anterior</button>
                   <button onClick={handleNext} disabled={isSubmitting || !formData.descripcion.trim() || formData.media.length === 0} aria-busy={isSubmitting} className="min-h-[52px] flex-[2] rounded-2xl bg-[#FE4102] text-white font-extrabold shadow-[0_14px_28px_-12px_rgba(254,65,2,0.7)] disabled:opacity-40 disabled:shadow-none focus-visible:ring-2 focus-visible:ring-offset-2 flex items-center justify-center gap-2 active:scale-[0.98]">
                     Siguiente <RiArrowRightLine aria-hidden="true" />
                   </button>
@@ -598,38 +676,139 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
           {step === 4 && (
             <div className="p-4 sm:p-6 flex flex-col gap-5">
               <div className="rounded-2xl border bg-white p-4 sm:p-5">
-                <h4 className="text-sm font-bold text-[#002693] mb-3">Valoración del problema</h4>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <label htmlFor="gravedad" className="flex flex-col gap-1.5 text-sm font-medium">Gravedad percibida
-                    <select id="gravedad" value={formData.gravedad} onChange={e => setFormData(p => ({ ...p, gravedad: e.target.value as Gravedad }))} className="h-11 rounded-xl border border-gray-300 px-3 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none">
-                      <option>Baja</option><option>Media</option><option>Alta</option><option>Crítica</option>
-                    </select>
-                  </label>
-                  <label htmlFor="frecuencia" className="flex flex-col gap-1.5 text-sm font-medium">Frecuencia
-                    <select id="frecuencia" value={formData.frecuencia} onChange={e => setFormData(p => ({ ...p, frecuencia: e.target.value as Frecuencia }))} className="h-11 rounded-xl border border-gray-300 px-3 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none">
-                      <option>Una vez</option><option>Semanal</option><option>Diario</option><option>Permanente</option>
-                    </select>
-                  </label>
-                  <label htmlFor="tiempo" className="flex flex-col gap-1.5 text-sm font-medium">Tiempo así
-                    <select id="tiempo" value={formData.tiempoProblema} onChange={e => setFormData(p => ({ ...p, tiempoProblema: e.target.value as TiempoProblema }))} className="h-11 rounded-xl border border-gray-300 px-3 text-sm focus:border-[#002693] focus:ring-1 focus:ring-[#002693] outline-none">
-                      <option>{"< 1 semana"}</option><option>1-4 semanas</option><option>1-6 meses</option><option>{"> 6 meses"}</option>
-                    </select>
-                  </label>
+                <h4 className="text-sm font-bold text-[#002693]">¿Qué tan grave es?</h4>
+                <p className="mt-0.5 text-xs text-gray-500">Esto define con qué prioridad se atiende tu reporte.</p>
+                <div className="mt-3 grid grid-cols-2 gap-2.5" role="radiogroup" aria-label="Gravedad del problema">
+                  {(
+                    [
+                      { v: 'Baja', desc: 'Molesta, puede esperar' },
+                      { v: 'Media', desc: 'Afecta el día a día' },
+                      { v: 'Alta', desc: 'Urge atenderla' },
+                      { v: 'Crítica', desc: 'Riesgo inmediato' },
+                    ] as { v: Gravedad; desc: string }[]
+                  ).map((op) => {
+                    const activo = formData.gravedad === op.v
+                    const color = gravedadColor(op.v)
+                    return (
+                      <button
+                        key={op.v}
+                        type="button"
+                        role="radio"
+                        aria-checked={activo}
+                        onClick={() => setFormData((p) => ({ ...p, gravedad: op.v }))}
+                        style={activo ? { borderColor: color, background: `${color}12` } : undefined}
+                        className={`min-h-[76px] rounded-2xl border-2 p-3 text-left transition-all active:scale-[0.98] ${
+                          activo ? 'shadow-[0_10px_24px_-14px_rgba(0,0,0,0.5)]' : 'border-black/10 bg-white hover:border-black/25'
+                        }`}
+                      >
+                        <span className="flex items-center gap-1.5 text-[14px] font-extrabold text-[#111]">
+                          <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: color }} aria-hidden="true" />
+                          {op.v}
+                        </span>
+                        <span className="mt-0.5 block text-[11px] leading-snug text-gray-500">{op.desc}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              <div className="rounded-2xl border bg-white p-4 sm:p-5 flex flex-col gap-4">
+                <div>
+                  <h4 className="text-sm font-bold text-[#002693]">¿Cada cuánto pasa?</h4>
+                  <div className="mt-2.5 flex flex-wrap gap-2" role="radiogroup" aria-label="Frecuencia del problema">
+                    {(['Una vez', 'Semanal', 'Diario', 'Permanente'] as Frecuencia[]).map((op) => {
+                      const activo = formData.frecuencia === op
+                      return (
+                        <button
+                          key={op}
+                          type="button"
+                          role="radio"
+                          aria-checked={activo}
+                          onClick={() => setFormData((p) => ({ ...p, frecuencia: op }))}
+                          className={`min-h-[44px] rounded-full border-2 px-4 text-[13px] font-extrabold transition-all active:scale-[0.97] ${
+                            activo
+                              ? 'border-[#002693] bg-[#002693] text-white shadow-[0_10px_20px_-12px_rgba(0,38,147,0.7)]'
+                              : 'border-black/10 bg-white text-[#111]/70 hover:border-[#002693]/40'
+                          }`}
+                        >
+                          {op === 'Permanente' ? 'Siempre' : op}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-[#002693]">¿Desde cuándo?</h4>
+                  <div className="mt-2.5 flex flex-wrap gap-2" role="radiogroup" aria-label="Tiempo del problema">
+                    {(['< 1 semana', '1-4 semanas', '1-6 meses', '> 6 meses'] as TiempoProblema[]).map((op) => {
+                      const activo = formData.tiempoProblema === op
+                      return (
+                        <button
+                          key={op}
+                          type="button"
+                          role="radio"
+                          aria-checked={activo}
+                          onClick={() => setFormData((p) => ({ ...p, tiempoProblema: op }))}
+                          className={`min-h-[44px] rounded-full border-2 px-4 text-[13px] font-extrabold transition-all active:scale-[0.97] ${
+                            activo
+                              ? 'border-[#002693] bg-[#002693] text-white shadow-[0_10px_20px_-12px_rgba(0,38,147,0.7)]'
+                              : 'border-black/10 bg-white text-[#111]/70 hover:border-[#002693]/40'
+                          }`}
+                        >
+                          {op}
+                        </button>
+                      )
+                    })}
+                  </div>
                 </div>
               </div>
 
               <fieldset className="rounded-2xl border bg-white p-4 sm:p-5">
-                <legend className="px-2 text-sm font-bold text-[#002693]">Impacto</legend>
-                <div className="flex flex-col gap-1 mt-1">
-                  <label className="flex items-center gap-2.5 text-sm min-h-[44px] px-2 rounded-xl hover:bg-gray-50 cursor-pointer"><input type="checkbox" className="w-[18px] h-[18px] accent-[#002693]" checked={formData.afectaMovilidad} onChange={e => setFormData(p => ({ ...p, afectaMovilidad: e.target.checked }))} /> Afecta movilidad y tránsito</label>
-                  <label className="flex items-center gap-2.5 text-sm min-h-[44px] px-2 rounded-xl hover:bg-gray-50 cursor-pointer"><input type="checkbox" className="w-[18px] h-[18px] accent-[#002693]" checked={formData.afectaSalud} onChange={e => setFormData(p => ({ ...p, afectaSalud: e.target.checked }))} /> Afecta salud y ambiente</label>
-                  <label className="flex items-center gap-2.5 text-sm min-h-[44px] px-2 rounded-xl hover:bg-gray-50 cursor-pointer"><input type="checkbox" className="w-[18px] h-[18px] accent-[#002693]" checked={formData.yaReportado} onChange={e => setFormData(p => ({ ...p, yaReportado: e.target.checked }))} /> Ya lo reporté antes</label>
+                <legend className="px-2 text-sm font-bold text-[#002693]">¿A qué afecta?</legend>
+                <div className="mt-1 grid grid-cols-1 gap-2.5" role="group" aria-label="Impacto del problema">
+                  {[
+                    { key: 'afectaMovilidad' as const, icon: RiCarLine, titulo: 'Afecta la movilidad', desc: 'Tránsito, buses o peatones' },
+                    { key: 'afectaSalud' as const, icon: RiHeartPulseLine, titulo: 'Afecta salud y ambiente', desc: 'Basura, agua, humo o ruido' },
+                    { key: 'yaReportado' as const, icon: RiHistoryLine, titulo: 'Ya lo reporté antes', desc: 'Sin respuesta hasta ahora' },
+                  ].map((op) => {
+                    const Icon = op.icon
+                    const activo = formData[op.key]
+                    return (
+                      <button
+                        key={op.key}
+                        type="button"
+                        aria-pressed={activo}
+                        onClick={() => setFormData((p) => ({ ...p, [op.key]: !p[op.key] }))}
+                        className={`flex min-h-[60px] items-center gap-3 rounded-2xl border-2 p-3 text-left transition-all active:scale-[0.99] ${
+                          activo
+                            ? 'border-[#002693] bg-[#002693]/[0.05] shadow-[0_10px_24px_-14px_rgba(0,38,147,0.6)]'
+                            : 'border-black/10 bg-white hover:border-[#002693]/40'
+                        }`}
+                      >
+                        <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl ${activo ? 'bg-[#002693] text-white' : 'bg-[#002693]/[0.07] text-[#002693]'}`}>
+                          <Icon size={20} aria-hidden="true" />
+                        </span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-[14px] font-extrabold text-[#111]">{op.titulo}</span>
+                          <span className="block truncate text-xs text-gray-500">{op.desc}</span>
+                        </span>
+                        <span
+                          aria-hidden="true"
+                          className={`grid h-6 w-6 shrink-0 place-items-center rounded-full border-2 text-sm font-black transition-all ${
+                            activo ? 'border-[#002693] bg-[#002693] text-white' : 'border-black/15 text-transparent'
+                          }`}
+                        >
+                          ✓
+                        </span>
+                      </button>
+                    )
+                  })}
                 </div>
               </fieldset>
 
               <div className="sticky bottom-0 -mx-4 sm:-mx-6 mt-1 border-t border-black/5 bg-white/90 px-4 sm:px-6 py-3 backdrop-blur">
                 <div className="flex gap-3">
-                  <button onClick={() => setStep(3)} className="min-h-[52px] flex-1 rounded-2xl border font-bold text-gray-600 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#002693] active:scale-[0.98]"><RiArrowLeftLine aria-hidden="true" /> Anterior</button>
+                  <button onClick={() => setStep(3)} className="min-h-[52px] flex-1 inline-flex items-center justify-center gap-2 rounded-2xl border font-bold text-gray-600 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#002693] active:scale-[0.98]"><RiArrowLeftLine aria-hidden="true" /> Anterior</button>
                   <button onClick={handleNext} className="min-h-[52px] flex-[2] rounded-2xl bg-[#FE4102] text-white font-extrabold shadow-[0_14px_28px_-12px_rgba(254,65,2,0.7)] focus-visible:ring-2 focus-visible:ring-offset-2 flex items-center justify-center gap-2 active:scale-[0.98]">Revisar <RiArrowRightLine aria-hidden="true" /></button>
                 </div>
               </div>
@@ -724,7 +903,7 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
 
               <div className="sticky bottom-0 -mx-4 sm:-mx-6 mt-1 border-t border-black/5 bg-white/90 px-4 sm:px-6 py-3 backdrop-blur">
                 <div className="flex gap-3">
-                  <button onClick={() => setStep(4)} disabled={isSubmitting} aria-busy={isSubmitting} className="min-h-[52px] flex-1 rounded-2xl border font-bold text-gray-600 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#002693] disabled:opacity-40 active:scale-[0.98]"><RiArrowLeftLine aria-hidden="true" /> Anterior</button>
+                  <button onClick={() => setStep(4)} disabled={isSubmitting} aria-busy={isSubmitting} className="min-h-[52px] flex-1 inline-flex items-center justify-center gap-2 rounded-2xl border font-bold text-gray-600 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#002693] disabled:opacity-40 active:scale-[0.98]"><RiArrowLeftLine aria-hidden="true" /> Anterior</button>
                   <button onClick={handleSubmit} disabled={isSubmitting} aria-busy={isSubmitting} className="min-h-[52px] flex-[2] rounded-2xl bg-[#0db954] hover:bg-green-700 text-white font-extrabold shadow-[0_14px_28px_-12px_rgba(13,185,84,0.7)] disabled:opacity-40 disabled:shadow-none focus-visible:ring-2 focus-visible:ring-offset-2 flex items-center justify-center gap-2 active:scale-[0.98]">
                     {isSubmitting ? "Guardando..." : <><RiSendPlaneLine aria-hidden="true" /> Enviar aporte</>}
                   </button>
@@ -740,16 +919,18 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
         )}
 
         {showConfirmClose && (
-          <div className="absolute inset-0 bg-black/40 flex items-center justify-center p-4">
-            <div role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full">
-              <h4 id="confirm-title" className="font-black text-[#002693]">¿Salir del formulario?</h4>
-              <p className="text-sm text-gray-600 mt-1">Tu progreso se guardará como borrador y podrás retomarlo.</p>
-              <div className="flex justify-end gap-3 mt-4">
-                <button onClick={() => setShowConfirmClose(false)} className="min-h-[44px] px-5 rounded-xl border font-semibold">Seguir aquí</button>
-                <button onClick={() => { setShowConfirmClose(false); clearDraft(); onCancel(); triggerRef.current?.focus() }} className="min-h-[44px] px-5 rounded-xl bg-[#002693] text-white font-bold">Salir</button>
-              </div>
-            </div>
-          </div>
+          <ConfirmarSalida
+            completados={[
+              formData.categoryId ? selectedCategory?.name ?? 'Categoría' : null,
+              formData.ubicacionConfirmada ? 'Ubicación' : null,
+              formData.media.length > 0 ? `Evidencia (${formData.media.length})` : null,
+              formData.descripcion.trim() ? 'Relato' : null,
+              step >= 4 ? 'Valoración' : null,
+            ].filter((x): x is string => !!x)}
+            onSeguir={() => setShowConfirmClose(false)}
+            onGuardarSalir={() => { setShowConfirmClose(false); onCancel(); triggerRef.current?.focus() }}
+            onDescartar={() => { setShowConfirmClose(false); clearDraft(); onCancel(); triggerRef.current?.focus() }}
+          />
         )}
       </div>
     </div>

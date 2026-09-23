@@ -16,7 +16,7 @@ const CODE_A_CATEGORIA: Record<string, CategoriaId> = {
   agua: 'Agua Potable, Alcantarillado Sanitario, Alcantarillado Pluvial',
   recoleccion: 'Recolección de Desechos y Saneamiento Ambiental',
   movilidad: 'Movilidad Urbana: Bacheo de Calles, Frecuencias, Obstrucciones de aceras, etc.',
-  servicios: 'Servicios Ciudadanos: Trámites, Atención al Vecino y Servicios Administrativos',
+  servicios: 'Servicios Ciudadanos: Trámites, Atención al Ciudadano y Servicios Administrativos',
 }
 
 export function codigoCategoria(id: CategoriaId): string {

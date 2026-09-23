@@ -4,7 +4,7 @@ export type CategoriaId =
   | "Agua Potable, Alcantarillado Sanitario, Alcantarillado Pluvial"
   | "Recolección de Desechos y Saneamiento Ambiental"
   | "Movilidad Urbana: Bacheo de Calles, Frecuencias, Obstrucciones de aceras, etc."
-  | "Servicios Ciudadanos: Trámites, Atención al Vecino y Servicios Administrativos"
+  | "Servicios Ciudadanos: Trámites, Atención al Ciudadano y Servicios Administrativos"
 
 export type Gravedad = "Baja" | "Media" | "Alta" | "Crítica"
 export type Frecuencia = "Una vez" | "Semanal" | "Diario" | "Permanente"
