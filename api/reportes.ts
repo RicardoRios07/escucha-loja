@@ -17,7 +17,7 @@ import {
   type ApiReq,
   type ApiRes,
   type EvidenciaApi,
-} from './_lib'
+} from './_lib.js'
 
 export interface PublicRow {
   id: string
