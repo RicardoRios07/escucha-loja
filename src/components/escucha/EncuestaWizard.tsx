@@ -330,17 +330,42 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
     setSearchQuery(r.display_name || "")
   }
 
+  // Identifica la última petición de GPS: evita que reintentos viejos
+  // pisen el estado si el usuario reintenta o cambia de paso.
+  const geoIntentoRef = useRef(0)
+
   const handleUseLocation = () => {
     if (!navigator.geolocation) { setUploadError("Geolocalización no disponible en este dispositivo"); return }
-    navigator.geolocation.getCurrentPosition(
-      pos => {
-        const lat = pos.coords.latitude, lng = pos.coords.longitude
-        setFormData(p => ({ ...p, location: { lat, lng }, ubicacionConfirmada: true, ...sugerirTerritorio(p, lat, lng) }))
-      },
-      // kCLErrorLocationUnknown / timeout / denegado: el mapa con pin
-      // central sigue disponible, así que se guía hacia él.
-      () => setUploadError("Sin señal GPS por ahora. Arrastra el mapa hasta el punto y pulsa Confirmar ubicación.")
-    )
+    const intentoActual = ++geoIntentoRef.current
+    const MAX_INTENTOS = 3
+    const pedir = (n: number) => {
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          if (geoIntentoRef.current !== intentoActual) return
+          const lat = pos.coords.latitude, lng = pos.coords.longitude
+          setFormData(p => ({ ...p, location: { lat, lng }, ubicacionConfirmada: true, ...sugerirTerritorio(p, lat, lng) }))
+        },
+        (err) => {
+          if (geoIntentoRef.current !== intentoActual) return
+          if (err.code === err.PERMISSION_DENIED) {
+            setUploadError("Permiso de ubicación denegado. Actívalo en los Ajustes de tu dispositivo para usar el GPS, o arrastra el mapa hasta el punto y pulsa Confirmar ubicación.")
+            return
+          }
+          // POSITION_UNAVAILABLE (kCLErrorLocationUnknown en iOS) y TIMEOUT
+          // suelen resolverse cuando el GPS calienta: reintentar en silencio.
+          if (n < MAX_INTENTOS) {
+            window.setTimeout(() => {
+              if (geoIntentoRef.current === intentoActual) pedir(n + 1)
+            }, 1500)
+            return
+          }
+          // Agotados los intentos: el mapa con pin central sigue disponible.
+          setUploadError("Sin señal GPS por ahora. Arrastra el mapa hasta el punto y pulsa Confirmar ubicación.")
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 30000 },
+      )
+    }
+    pedir(1)
   }
 
   /**
