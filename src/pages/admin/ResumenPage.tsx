@@ -57,7 +57,7 @@ function celularCiudadano(d: MvpDenuncia): string {
 }
 
 function nombreArchivo(ext: string): string {
-  return `jesus-escucha-aportes-${new Date().toISOString().slice(0, 10)}.${ext}`
+  return `jesus-escucha-reportes-${new Date().toISOString().slice(0, 10)}.${ext}`
 }
 
 function exportarExcel(rows: FilaOrdenada[]) {
@@ -82,7 +82,7 @@ function exportarExcel(rows: FilaOrdenada[]) {
     { wch: 12 }, { wch: 8 },
   ]
   const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Aportes')
+  XLSX.utils.book_append_sheet(wb, ws, 'Reportes')
   XLSX.writeFile(wb, nombreArchivo('xlsx'))
 }
 
@@ -216,7 +216,7 @@ export default function ResumenPage() {
 
   const kpis = [
     {
-      label: 'Aportes',
+      label: 'Reportes',
       value: datos.total,
       chip: `${datos.ya.pct}% reincid.`,
       accent: 'text-[#002693]',
@@ -246,7 +246,7 @@ export default function ResumenPage() {
     <PanelPage
       eyebrow="Panel · resumen"
       title="Resumen"
-      subtitle="Vista ejecutiva del estado de los aportes ciudadanos: indicadores, categorías y detalle filtrable."
+      subtitle="Vista ejecutiva del estado de los reportes ciudadanos: indicadores, categorías y detalle filtrable."
     >
       {error ? (
         <p role="alert" className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
@@ -424,7 +424,7 @@ export default function ResumenPage() {
         ))}
         {Object.keys(datos.porCat).length === 0 && (
           <p className="col-span-full rounded-[22px] border border-dashed border-[#dfe7f5] bg-white p-6 text-center text-sm text-[#8aa0c4]">
-            Aún no hay aportes para resumir.
+            Aún no hay reportes para resumir.
           </p>
         )}
       </section>
@@ -523,7 +523,7 @@ export default function ResumenPage() {
           </div>
           <div className="flex items-center justify-between border-t border-[#edf1f8] bg-[#f8fafd] p-3">
             <span className="text-xs font-semibold text-[#5d6f92]">
-              {datos.ordenadas.length} aportes · página {page} de {totalPages}
+              {datos.ordenadas.length} reportes · página {page} de {totalPages}
             </span>
             <div className="flex gap-2">
               <button disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))} className="min-h-[36px] rounded-full border border-[#dfe7f5] bg-white px-3 text-sm font-semibold text-[#1f2b4d] shadow-sm disabled:opacity-40">

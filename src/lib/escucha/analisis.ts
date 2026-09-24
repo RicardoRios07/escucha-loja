@@ -121,7 +121,7 @@ export function topKeywords(denuncias: MvpDenuncia[], top = 5): { texto: string;
     .map(([w, casos]) => ({ texto: muestra.get(w) ?? w, casos }))
 }
 
-/** Sectores cuyo primer aporte tiene ≤7 días (focos nuevos). */
+/** Sectores cuyo primer reporte tiene ≤7 días (focos nuevos). */
 export function sectoresEmergentes(denuncias: MvpDenuncia[], clusters: Cluster[]): string[] {
   const ahora = Date.now()
   const primeroPorCluster = new Map<string, number>()
@@ -141,7 +141,7 @@ export function sectoresEmergentes(denuncias: MvpDenuncia[], clusters: Cluster[]
   return out.slice(0, 3)
 }
 
-/** Días consecutivos con aportes hasta hoy. */
+/** Días consecutivos con reportes hasta hoy. */
 export function rachaAportes(denuncias: MvpDenuncia[]): number {
   const dias = new Set(
     denuncias.map((d) => {
@@ -162,7 +162,7 @@ export function rachaAportes(denuncias: MvpDenuncia[]): number {
 }
 
 const METODOLOGIA =
-  'Priorización híbrida y auditable (sin caja negra): cada aporte recibe un score 0–100 ' +
+  'Priorización híbrida y auditable (sin caja negra): cada reporte recibe un score 0–100 ' +
   '(40% densidad del cluster, 25% gravedad, 15% cronicidad, 10% impacto en salud/movilidad, +8 si ya fue reportado). ' +
   'Los sectores se agrupan por cercanía (~550 m) y se ordenan por casos y gravedad máxima. ' +
   'Ese cálculo alimenta un prompt en lenguaje natural para un modelo de IA que redacta la LECTURA ÚNICA ' +
@@ -182,18 +182,18 @@ export const HeuristicProvider: AnalysisProvider = {
 
     const resumen: string[] = []
     if (stats.total === 0) {
-      resumen.push('Aún no hay aportes registrados. Comparte la encuesta para empezar a escuchar.')
+      resumen.push('Aún no hay reportes registrados. Comparte la encuesta para empezar a escuchar.')
     } else {
       const topCat = Object.entries(stats.porCategoria).sort((a, b) => (b[1] as number) - (a[1] as number))[0]
       resumen.push(
-        `${stats.total} aportes en total${topCat ? ` · ${topCat[0]} concentra ${Math.round(((topCat[1] as number) / stats.total) * 100)}%` : ''}.`,
+        `${stats.total} reportes en total${topCat ? ` · ${topCat[0]} concentra ${Math.round(((topCat[1] as number) / stats.total) * 100)}%` : ''}.`,
       )
       const crit = stats.porGravedad['Crítica'] || 0
       if (crit > 0) resumen.push(`${crit} caso${crit === 1 ? '' : 's'} crítico${crit === 1 ? '' : 's'} exigen inspección inmediata.`)
       if (ya.pct > 30)
         resumen.push(`${ya.pct}% ya fue reportado antes sin respuesta: hay una deuda de confianza que exige intervención visible.`)
       if (topScore?._score !== undefined && stats.total > 0)
-        resumen.push(`El aporte de mayor prioridad alcanza score ${topScore._score}/100.`)
+        resumen.push(`El reporte de mayor prioridad alcanza score ${topScore._score}/100.`)
     }
     for (const b of getInsights(denuncias, clusters)) {
       if (!resumen.includes(b) && resumen.length < 4) resumen.push(b)
@@ -224,13 +224,13 @@ export const HeuristicProvider: AnalysisProvider = {
     const tendencias: string[] = []
     if (daily.wow !== null) {
       const dir = daily.wow > 0 ? 'subieron' : daily.wow < 0 ? 'bajaron' : 'se mantuvieron'
-      tendencias.push(`Los aportes ${dir} ${Math.abs(daily.wow)}% esta semana frente a la anterior.`)
+      tendencias.push(`Los reportes ${dir} ${Math.abs(daily.wow)}% esta semana frente a la anterior.`)
     }
     const ultimos7 = daily.values.slice(-7).reduce((a, b) => a + b, 0)
     tendencias.push(
       ultimos7 === 0
-        ? 'Sin aportes en los últimos 7 días: la escucha se enfrió, conviene reactivar la convocatoria.'
-        : `${ultimos7} aportes en los últimos 7 días mantienen viva la conversación con los barrios.`,
+        ? 'Sin reportes en los últimos 7 días: la escucha se enfrió, conviene reactivar la convocatoria.'
+        : `${ultimos7} reportes en los últimos 7 días mantienen viva la conversación con los barrios.`,
     )
     const saludVsMov =
       stats.afectanSalud >= stats.afectanMovilidad
@@ -248,7 +248,7 @@ export const HeuristicProvider: AnalysisProvider = {
       queEstaPasando: resumen.slice(0, 2),
       observacionPrincipal: prioridades[0]
         ? `La mayor concentración de casos se encuentra en ${prioridades[0].sector} (${prioridades[0].casos} caso${prioridades[0].casos === 1 ? '' : 's'}, gravedad máxima ${prioridades[0].gravedadMax}).`
-        : 'Aún no hay aportes suficientes para una observación principal.',
+        : 'Aún no hay reportes suficientes para una observación principal.',
       tendenciasYPatrones: tendencias.slice(0, 3),
       prioridad: prioridades[0]
         ? `El sector ${prioridades[0].sector} requiere atención inmediata con prioridad máxima (gravedad ${prioridades[0].gravedadMax}, ${prioridades[0].casos} caso${prioridades[0].casos === 1 ? '' : 's'}).`
@@ -269,7 +269,7 @@ export const HeuristicProvider: AnalysisProvider = {
         : 'Comparte la encuesta para empezar a escuchar y priorizar.',
       advertenciaEstadistica:
         stats.total > 0 && stats.total < 30
-          ? `El total de aportes es de solo ${stats.total} registros, una muestra pequeña: las variaciones porcentuales no deben interpretarse como tendencia consolidada todavía.`
+          ? `El total de reportes es de solo ${stats.total} registros, una muestra pequeña: las variaciones porcentuales no deben interpretarse como tendencia consolidada todavía.`
           : null,
       notaHonesta:
         ya.pct > 30 && stats.total > 0

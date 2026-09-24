@@ -28,7 +28,7 @@ export default function MapaPage() {
     <PanelPage
       eyebrow="Panel · territorio"
       title="Mapa"
-      subtitle="Ubica cada aporte sobre el terreno y los edificios reales de Loja para visualizar las zonas con mayor acumulación de reportes."
+      subtitle="Ubica cada reporte sobre el terreno y los edificios reales de Loja para visualizar las zonas con mayor acumulación de reportes."
     >
       {error ? (
         <p role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">

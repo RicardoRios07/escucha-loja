@@ -22,7 +22,7 @@ export default function EncuestaPage() {
   }
 
   if (!open) {
-    // Resumen del aporte recién enviado (categoría + sector) para reforzar el cierre.
+    // Resumen del reporte recién enviado (categoría + sector) para reforzar el cierre.
     const count = publicos.length + (enviado && !publicos.some((x) => x.id === enviado.id) ? 1 : 0)
     return (
       <div className="min-h-dvh flex items-center justify-center bg-[#f8fafc] p-6">
@@ -47,10 +47,10 @@ export default function EncuestaPage() {
               <Check size={30} strokeWidth={3} aria-hidden="true" />
             </motion.div>
             <h2 className="relative mt-3 text-center font-display text-[1.7rem] leading-[1.02] tracking-tight">
-              ¡Aporte enviado!
+              ¡Reporte enviado!
             </h2>
             <p className="relative mt-1 text-center text-sm text-white/70">
-              Gracias por alzar tu voz. Tu aporte ya suma para priorizar tu sector.
+              Gracias por alzar tu voz. Tu reporte ya suma para priorizar tu sector.
             </p>
           </div>
 
@@ -71,7 +71,7 @@ export default function EncuestaPage() {
 
             <div className="mt-4 inline-flex items-center gap-2 bg-[#f8fafc] border rounded-full px-4 py-2 text-sm">
               <Logo height={20} tile />
-              <span className="font-bold text-[#002693]">{count} aportes en total</span>
+              <span className="font-bold text-[#002693]">{count} reportes en total</span>
               <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" aria-hidden="true" />
             </div>
 

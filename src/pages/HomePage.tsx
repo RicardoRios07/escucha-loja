@@ -28,9 +28,9 @@ function categoriaDe(label: string): CategoryKey | null {
 }
 
 const FAQS = [
-  { q: '¿Qué es Jesús Escucha?', a: 'Es un canal directo con la ciudad: reportas lo que pasa en tu barrio con foto o video, ubicación y un relato breve, y nosotros lo escuchamos. Tu aporte suma al mapa y a la priorización de la ciudad.' },
+  { q: '¿Qué es Jesús Escucha?', a: 'Es un canal directo con la ciudad: reportas lo que pasa en tu barrio con foto o video, ubicación y un relato breve, y nosotros lo escuchamos. Tu reporte suma al mapa y a la priorización de la ciudad.' },
   { q: '¿Mi reporte es anónimo?', a: 'Entras con tu cuenta de Google para validar que eres una persona real. Tu nombre y tu correo nunca se publican: en el mapa y los resúmenes solo aparecen el problema, el sector y la evidencia.' },
-  { q: '¿Qué pasa con mi aporte después de enviarlo?', a: 'Aparece en el mapa de calor, alimenta las estadísticas por categoría y sector, y entra al análisis de priorización que revisamos cada semana para definir qué atender primero.' },
+  { q: '¿Qué pasa con mi reporte después de enviarlo?', a: 'Aparece en el mapa de calor, alimenta las estadísticas por categoría y sector, y entra al análisis de priorización que revisamos cada semana para definir qué atender primero.' },
   { q: '¿Cuánto tiempo toma participar?', a: 'Tres pasos y menos de 2 minutos: eliges la categoría, ubicas el punto en el mapa y agregas evidencia con tu relato.' },
   { q: '¿Necesito instalar alguna aplicación?', a: 'No. Todo funciona en el navegador de tu celular: puedes tomar fotos o grabar video en el momento, sin descargas.' },
 ]
@@ -70,7 +70,7 @@ export default function HomePage() {
         <img src={IMG.cityTop} alt="Loja, Ecuador" className="campaign-hero-city" />
         <img src={IMG.candidateTop} alt="" className="campaign-hero-candidate" aria-hidden="true" />
         <div className="campaign-hero-copy">
-          <div className="campaign-tag"><Megaphone size={16} /> {cargando && vivos.length === 0 ? 'Cargando aportes…' : vivos.length === 1 ? '1 aporte de vecinos' : `${formatNum(vivos.length)} aportes de vecinos`}</div>
+          <div className="campaign-tag"><Megaphone size={16} /> {cargando && vivos.length === 0 ? 'Cargando reportes…' : vivos.length === 1 ? '1 reporte de vecinos' : `${formatNum(vivos.length)} reportes de vecinos`}</div>
           <h1>¿Qué necesita<br />{' '}<span>tu barrio?</span><br />{' '}Cuéntalo.</h1>
           <p>Tu opinión hace la diferencia. Comparte lo que ves, lo que falta y lo que podemos mejorar juntos.</p>
           <div className="campaign-actions">
@@ -83,7 +83,7 @@ export default function HomePage() {
 
       <section className="campaign-middle">
         <div id="mapa" className="campaign-map-panel">
-          <div className="campaign-count"><span /> {formatNum(vivos.length)} aportes registrados</div>
+          <div className="campaign-count"><span /> {formatNum(vivos.length)} reportes registrados</div>
           <div className="campaign-map-image">
             <img src={IMG.map} alt="Mapa de Loja" className="campaign-map-skeleton" loading="lazy" decoding="async" aria-hidden="true" />
             <LojaMap3D
@@ -115,14 +115,14 @@ export default function HomePage() {
       </section>
 
       <section className="campaign-bottom">
-        <article id="aportes" className="campaign-happening">
-          <div><h2>Lo que está pasando<br /><span>en Loja</span></h2><div className="campaign-categories">{CATEGORIES.map((category) => { const Icon = FILTER_ICONS[category.key as CategoryKey]; return <button key={category.key} type="button"><i style={{ backgroundColor: category.color }}><Icon size={17} /></i><b>{category.label}</b><small>{conteoPorCategoria[category.key]} aportes</small></button> })}</div></div>
+        <article id="reportes" className="campaign-happening">
+          <div><h2>Lo que está pasando<br /><span>en Loja</span></h2><div className="campaign-categories">{CATEGORIES.map((category) => { const Icon = FILTER_ICONS[category.key as CategoryKey]; return <button key={category.key} type="button"><i style={{ backgroundColor: category.color }}><Icon size={17} /></i><b>{category.label}</b><small>{conteoPorCategoria[category.key]} reportes</small></button> })}</div></div>
           <img src={IMG.cityTop} alt="Ciudad de Loja" loading="lazy" decoding="async" />
         </article>
       </section>
 
       <section className="campaign-stats" aria-label="Cifras de participación">
-        <div><b>{formatNum(vivos.length)}</b><span>aportes de vecinos</span></div>
+        <div><b>{formatNum(vivos.length)}</b><span>reportes de vecinos</span></div>
         <div><b>{formatNum(barrios)}</b><span>barrios alcanzados</span></div>
         <div><b>{lider ? formatNum(lider.n) : 0}</b><span>{lider ? `lidera ${lider.label}` : 'sin datos aún'}</span></div>
         <div><b>{formatNum(criticas)}</b><span>casos críticos</span></div>
@@ -147,7 +147,7 @@ export default function HomePage() {
           <a href="#inicio">Inicio</a>
           <a href="#mapa">Mapa</a>
           <a href="#como-funciona">Cómo participar</a>
-          <a href="#aportes">Aportes</a>
+          <a href="#reportes">Reportes</a>
           <Link to="/ingresar">Participar</Link>
         </nav>
         <p className="campaign-footer-copy">© 2026 Jesús Escucha · Hecho en Loja</p>

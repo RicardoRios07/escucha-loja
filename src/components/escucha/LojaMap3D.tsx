@@ -1023,7 +1023,7 @@ export default function LojaMap3D({
       )}
       <div className="loja-map-hud">
         <div className="loja-map-top-row">
-          {!lite && <div className="loja-map-status-pill">{totalAportes} aportes registrados</div>}
+          {!lite && <div className="loja-map-status-pill">{totalAportes} reportes registrados</div>}
           <div className="loja-map-toggles">
             <button className="loja-map-toggle" type="button" disabled={busy === 'location'} onClick={handleUseLocation}>
               Usar ubicación actual

@@ -213,7 +213,7 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
     if (formData.media.length === 0) { setSubmitError("Adjunta al menos una evidencia"); setStep(3); return }
     if (!user) { setSubmitError("Tu sesión expiró. Vuelve a ingresar."); return }
     setIsSubmitting(true)
-    setProgressFeedback("Guardando aporte...")
+    setProgressFeedback("Guardando reporte...")
     try {
       // Territorio declarado o resuelto por punto (nunca vacío si hay ubicación).
       let parroquiaId = formData.parroquiaId
@@ -243,10 +243,10 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
         // Fotogramas extraídos del vídeo (validación Vision fail-open; el server los descarta).
         ...(framesRef.current.length ? { fotogramas: framesRef.current.flatMap(r => r.frames).slice(0, 3) } : {}),
       })
-      setSnackbar({ show: true, msg: "¡Gracias por alzar tu voz! Tu aporte fue registrado.", type: "success" })
+      setSnackbar({ show: true, msg: "¡Gracias por alzar tu voz! Tu reporte fue registrado.", type: "success" })
       setTimeout(() => { setSnackbar({ show: false, msg: "", type: "success" }); onComplete(creada.id, creada); triggerRef.current?.focus() }, 1800)
     } catch (e: any) {
-      setSubmitError(e.message || "No se pudo registrar tu aporte")
+      setSubmitError(e.message || "No se pudo registrar tu reporte")
       setSnackbar({ show: true, msg: e.message || "No se pudo registrar", type: "error" })
       setTimeout(() => setSnackbar({ show: false, msg: "", type: "error" }), 4000)
     } finally {
@@ -916,7 +916,7 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
                 <div className="flex gap-3">
                   <button onClick={() => setStep(4)} disabled={isSubmitting} aria-busy={isSubmitting} className="min-h-[52px] flex-1 inline-flex items-center justify-center gap-2 rounded-2xl border font-bold text-gray-600 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#002693] disabled:opacity-40 active:scale-[0.98]"><RiArrowLeftLine aria-hidden="true" /> Anterior</button>
                   <button onClick={handleSubmit} disabled={isSubmitting} aria-busy={isSubmitting} className="min-h-[52px] flex-[2] rounded-2xl bg-[#0db954] hover:bg-green-700 text-white font-extrabold shadow-[0_14px_28px_-12px_rgba(13,185,84,0.7)] disabled:opacity-40 disabled:shadow-none focus-visible:ring-2 focus-visible:ring-offset-2 flex items-center justify-center gap-2 active:scale-[0.98]">
-                    {isSubmitting ? "Guardando..." : <><RiSendPlaneLine aria-hidden="true" /> Enviar aporte</>}
+                    {isSubmitting ? "Guardando..." : <><RiSendPlaneLine aria-hidden="true" /> Enviar reporte</>}
                   </button>
                 </div>
               </div>

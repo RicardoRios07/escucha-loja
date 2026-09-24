@@ -176,7 +176,7 @@ export default async function handler(req: ApiReq, res: ApiRes) {
         return
       }
 
-      // Regla de negocio: 15 aportes/día por usuario + 3 min entre envíos.
+      // Regla de negocio: 15 reportes/día por usuario + 3 min entre envíos.
       // Una sola sentencia (atómico): dos envíos simultáneos no la burlan.
       const LIMITE_DIA = 15
       const COOLDOWN_S = 180
@@ -216,11 +216,11 @@ export default async function handler(req: ApiReq, res: ApiRes) {
           ),
         )
         if ((estado[0]?.n ?? 0) >= LIMITE_DIA) {
-          res.status(429).json({ error: 'Llegaste al límite de 15 aportes por día.' })
+          res.status(429).json({ error: 'Llegaste al límite de 15 reportes por día.' })
           return
         }
         const esperaMin = Math.max(1, Math.ceil((COOLDOWN_S - (estado[0]?.segs ?? 0)) / 60))
-        res.status(429).json({ error: `Espera ${esperaMin} min antes de enviar otro aporte.` })
+        res.status(429).json({ error: `Espera ${esperaMin} min antes de enviar otro reporte.` })
         return
       }
       for (const e of evOk) {

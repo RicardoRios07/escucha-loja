@@ -204,7 +204,7 @@ export default function AnalisisPage() {
     <PanelPage
       eyebrow="Panel · ciudad"
       title="Análisis"
-      subtitle="Conoce el panorama general de los aportes ciudadanos y detecta los principales tendencias para tomar mejores decisiones."
+      subtitle="Conoce el panorama general de los reportes ciudadanos y detecta los principales tendencias para tomar mejores decisiones."
     >
       {error ? (
         <p role="alert" className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
@@ -217,7 +217,7 @@ export default function AnalisisPage() {
         </p>
       ) : null}
       <p className="num mt-1 text-[13px] font-bold text-[#5d6f92]" aria-label="Contexto del análisis">
-        {reporte.total} {reporte.total === 1 ? 'aporte' : 'aportes'} · {criticalCount} {criticalCount === 1 ? 'crítico' : 'críticos'} · últimos 30 días
+        {reporte.total} {reporte.total === 1 ? 'reporte' : 'reportes'} · {criticalCount} {criticalCount === 1 ? 'crítico' : 'críticos'} · últimos 30 días
       </p>
       <section className="mt-5 grid gap-4 xl:grid-cols-[1.1fr_1.5fr_1.1fr]">
           <div className="rounded-[22px] border border-[#e2e9f6] bg-[#f2f8ff] p-4 shadow-sm">
@@ -302,7 +302,7 @@ export default function AnalisisPage() {
             </div>
           </PanelCard>
 
-          <PanelCard icon={ArrowRight} title="Aportes por categoría">
+          <PanelCard icon={ArrowRight} title="Reportes por categoría">
             <div className="mt-4 flex items-center justify-between gap-3">
               <div
                 className="relative grid h-36 w-36 place-items-center rounded-full"

@@ -57,7 +57,7 @@ export default function ComunidadPage() {
         hideLogoDesktop
         eyebrow="Comunidad"
         title="Qué está pasando en Loja"
-        desc={`${total} aportes de vecinos${top ? ` · ${top[0]} lidera con ${top[1]}` : ''}. Los datos personales nunca se publican.`}
+        desc={`${total} reportes de vecinos${top ? ` · ${top[0]} lidera con ${top[1]}` : ''}. Los datos personales nunca se publican.`}
       />
 
       <div className="pb-6 lg:grid lg:grid-cols-[1.15fr,1fr] lg:gap-6">
@@ -94,7 +94,7 @@ export default function ComunidadPage() {
           </section>
         </div>
 
-        <section aria-label="Aportes recientes" className="mt-4">
+        <section aria-label="Reportes recientes" className="mt-4">
           <h2 className="text-[13px] font-extrabold uppercase tracking-[0.12em] text-[#111]/50">
             Recientes
           </h2>
@@ -142,7 +142,7 @@ export default function ComunidadPage() {
             <Eye size={14} aria-hidden="true" /> Vista pública: sin nombres, sin correos, sin direcciones exactas.
           </p>
           {cargando && (
-            <p className="mt-2 text-[12px] font-semibold text-[#002693]" role="status">Actualizando aportes…</p>
+            <p className="mt-2 text-[12px] font-semibold text-[#002693]" role="status">Actualizando reportes…</p>
           )}
         </section>
       </div>

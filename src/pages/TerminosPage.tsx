@@ -20,7 +20,7 @@ export default function TerminosPage() {
           <p className="mt-1">
             Un canal ciudadano para reportar problemas de la ciudad (agua, saneamiento
             ambiental, movilidad urbana y servicios ciudadanos) con foto o video, ubicación y un relato breve.
-            Los aportes alimentan un mapa público y un análisis de priorización.
+            Los reportes alimentan un mapa público y un análisis de priorización.
           </p>
         </section>
         <section>
@@ -74,7 +74,7 @@ export default function TerminosPage() {
         <section>
           <h2 className="font-extrabold text-[#111]">7. Uso responsable</h2>
           <p className="mt-1">
-            Reporta hechos reales. Los aportes falsos o con contenido ofensivo pueden
+            Reporta hechos reales. Los reportes falsos o con contenido ofensivo pueden
             ser descartados por el equipo de revisión. Esta plataforma está dirigida
             únicamente a personas mayores de edad.
           </p>
