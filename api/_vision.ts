@@ -114,8 +114,7 @@ const CATEGORIAS_PROHIBIDAS = [
   'animation', 'font', 'logo',
 ]
 
-const mensajeRechazo = (nombre: string): string =>
-  `El archivo "${nombre}" fue rechazado: se detectó una ilustración, diseño gráfico o imagen generada por IA. Por favor sube una fotografía real.`
+const MENSAJE_RECHAZO = 'Imagen/Video rechazado: no cumple las normas de contenido. Por favor, intenta con otra.'
 
 interface SafeSearchResp {
   adult?: string
@@ -139,8 +138,8 @@ interface ImageResp {
   error?: { message?: string }
 }
 
-/** Nombre de archivo desde la URL del blob. */
-const nombreDe = (url: string): string => {
+/** Nombre de archivo desde la URL del blob (para logs/debug). */
+const _nombreDe = (url: string): string => {
   try {
     return new URL(url).pathname.split('/').pop() ?? url
   } catch {
@@ -204,9 +203,7 @@ export async function validarFotosIA(fotos: { url: string; origen?: 'foto' | 'vi
     if (!buf) continue
     const firma = detectarFirmaMetadatosIA(buf)
     if (firma) {
-      throw new Error(
-        `El archivo "${nombreDe(foto.url)}" fue rechazado: contiene metadatos o marcas de agua de Inteligencia Artificial.`,
-      )
+      throw new Error(MENSAJE_RECHAZO)
     }
   }
 
@@ -223,8 +220,6 @@ export async function validarFotosIA(fotos: { url: string; origen?: 'foto' | 'vi
   try {
     const respuestas = await analizarVision(completas)
     respuestas.forEach((r, i) => {
-      const nombre = nombreDe(completas[i]?.url ?? '')
-
       if (r.error?.message) throw new Error(r.error.message)
 
       // 2a) Gore/NSFW (SafeSearch): adult/violencia LIKELY+, racy VERY_LIKELY.
@@ -236,22 +231,18 @@ export async function validarFotosIA(fotos: { url: string; origen?: 'foto' | 'vi
         ['LIKELY', 'VERY_LIKELY'].includes(lvl(s.violence)) ||
         lvl(s.racy) === 'VERY_LIKELY'
       if (esPornoOGore) {
-        throw new Error(
-          `El archivo "${nombre}" contiene material no permitido (contenido explícito o violencia).`,
-        )
+        throw new Error(MENSAJE_RECHAZO)
       }
       if (
         completas[i]?.origen === 'video' &&
         ['LIKELY', 'VERY_LIKELY'].includes(lvl(s.medical))
       ) {
-        throw new Error(
-          `El vídeo "${nombre}" contiene imágenes de sangre o contenido médico no permitido.`,
-        )
+        throw new Error(MENSAJE_RECHAZO)
       }
 
       // 2b) Spoof (ilustración / diseño / IA).
       if (['LIKELY', 'VERY_LIKELY'].includes(lvl(s.spoof))) {
-        throw new Error(mensajeRechazo(nombre))
+        throw new Error(MENSAJE_RECHAZO)
       }
 
       // 2c) Páginas web con imágenes coincidentes en dominios de generadores IA.
@@ -259,7 +250,7 @@ export async function validarFotosIA(fotos: { url: string; origen?: 'foto' | 'vi
       const enSitiosIA = paginas.some((p) =>
         DOMINIOS_IA.some((d) => p.url?.toLowerCase().includes(d)),
       )
-      if (enSitiosIA) throw new Error(mensajeRechazo(nombre))
+      if (enSitiosIA) throw new Error(MENSAJE_RECHAZO)
 
       // 2d) Etiquetas de arte/IA con score > 0.45.
       const labels = r.labelAnnotations ?? []
@@ -269,7 +260,7 @@ export async function validarFotosIA(fotos: { url: string; origen?: 'foto' | 'vi
           CATEGORIAS_PROHIBIDAS.some((cat) => label.description!.toLowerCase().includes(cat)) &&
           (label.score ?? 0) > 0.45,
       )
-      if (esArteOIA) throw new Error(mensajeRechazo(nombre))
+      if (esArteOIA) throw new Error(MENSAJE_RECHAZO)
     })
   } catch (err) {
     // Fail-open (guía §10): solo los rechazos duros bloquean. Los errores de
