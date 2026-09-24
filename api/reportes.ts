@@ -149,13 +149,22 @@ export default async function handler(req: ApiReq, res: ApiRes) {
 
       // Evidencia ya subida al Blob (el navegador sube directo vía token).
       const evIn = Array.isArray(b.evidencia) ? b.evidencia.slice(0, 3) : []
-      const evOk: { url: string; kind: 'foto' | 'video'; duracion_s: number | null }[] = []
+      const evOk: { url: string; kind: 'foto' | 'video'; duracion_s: number | null; origen: 'foto' | 'video' }[] = []
       for (const e of evIn) {
         const o = e as { url?: unknown; kind?: unknown; duracion_s?: unknown }
         if (typeof o.url !== 'string' || !esUrlBlobPropia(o.url)) continue
         if (o.kind !== 'foto' && o.kind !== 'video') continue
         const dur = typeof o.duracion_s === 'number' && Number.isFinite(o.duracion_s) ? Math.round(o.duracion_s) : null
-        evOk.push({ url: o.url.slice(0, 500), kind: o.kind, duracion_s: dur })
+        evOk.push({ url: o.url.slice(0, 500), kind: o.kind, duracion_s: dur, origen: o.kind })
+      }
+
+      // Fotogramas de vídeo extraídos en el navegador (máx 3 por reporte).
+      // No ocupan slot de evidencia visible: solo se validan con la misma
+      // capa Vision (que evalúa `medical` para origen video) y NO se persisten.
+      const fgIn = Array.isArray(b.fotogramas) ? b.fotogramas.slice(0, 3) : []
+      for (const u of fgIn) {
+        if (typeof u !== 'string' || !esUrlBlobPropia(u)) continue
+        evOk.push({ url: u.slice(0, 500), kind: 'foto', duracion_s: null, origen: 'video' })
       }
 
       // Validar que las fotos no sean IA/gore (fail-open: fallos solo se loguean).

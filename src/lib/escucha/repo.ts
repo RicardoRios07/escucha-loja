@@ -117,6 +117,12 @@ export interface CrearReporteInput {
   referencia: string
   /** Adjuntos ya subidos a la nube (ver `subirEvidencia` en media.ts). */
   evidencia: MediaRemota[]
+  /**
+   * Fotogramas de vídeo extraídos en el navegador (máx 3, ver
+   * `extraerFotogramasDeVideo` en media.ts). Se validan con la capa Vision
+   * sin persistirse ni ocupar slot de evidencia visible.
+   */
+  fotogramas?: string[]
 }
 
 export async function crearReporte(input: CrearReporteInput): Promise<MvpDenuncia> {
@@ -145,6 +151,7 @@ export async function crearReporte(input: CrearReporteInput): Promise<MvpDenunci
         kind: e.kind,
         duracion_s: e.duration ? Math.round(e.duration) : null,
       })),
+      ...(input.fotogramas?.length ? { fotogramas: input.fotogramas.slice(0, 3) } : {}),
     }),
   })
   const d = await leerJson(r)

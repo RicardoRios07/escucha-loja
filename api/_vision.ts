@@ -21,7 +21,65 @@ const MAX_BYTES_VISION = 15 * 1024 * 1024
 
 // ---------- Capa 1: firmas de metadatos (guía §2, §7) ----------
 const FIRMAS_IA = [
-  'chatgpt', 'dall-e', 'midjourney', 'stable diffusion', 'c2pa', 'comfyui',
+  // Modelos / proveedores principales
+  'chatgpt', 'gpt-4', 'gpt-3.5', 'gpt4', 'gpt3', 'openai',
+  'dall-e', 'dalle', 'dall·e',
+  'midjourney', 'mj',
+  'stable diffusion', 'stablediffusion', 'sd',
+  'gemini', 'bard',
+  'claude', 'anthropic',
+  'perplexity',
+  // Herramientas / plataformas populares
+  'c2pa', 'comfyui', 'automatic1111', 'invokeai', 'webui',
+  'leonardo', 'leonardo.ai', 'leonardoai',
+  'runway', 'runwayml', 'gen-2', 'gen2',
+  'pika', 'pika.art', 'pikaart',
+  'sora',
+  'firefly', 'adobe firefly',
+  'canva', 'magic studio',
+  'bing image creator', 'bing create', 'designer.microsoft',
+  'civitai', 'civitai.com',
+  'huggingface', 'hf.co',
+  'replicate', 'replicate.com',
+  'fal.ai', 'fal',
+  'ideogram', 'ideogram.ai',
+  'playground', 'playgroundai',
+  'nightcafe', 'nightcafe.studio',
+  'starryai', 'starry ai',
+  'wombo', 'dream by wombo',
+  'lensa', 'prisma labs',
+  'artbreeder',
+  'deepai', 'deepai.org',
+  'craiyon', 'dall-e mini',
+  'hotpot', 'hotpot.ai',
+  'fotor', 'fotor.com',
+  'cutout.pro', 'cutout pro',
+  'photoroom', 'photoroom.com',
+  'remove.bg', 'removebg',
+  'upscale.media', 'upscale media',
+  'bigjpg', 'waifu2x',
+  'gigapixel', 'topaz labs',
+  'magnific', 'magnific.ai',
+  'krea', 'krea.ai',
+  'everart', 'everart.ai',
+  'getimg', 'getimg.ai',
+  'mage', 'mage.space',
+  'neural.love', 'neural love',
+  'artflow', 'artflow.ai',
+  'dreamstudio', 'dreamstudio.ai',
+  'stability', 'stability.ai', 'stabilityai',
+  'openjourney',
+  'anything v', 'anything-v',
+  'realistic vision', 'realisticvision',
+  'deliberate', 'rev animated', 'chilloutmix',
+  'epicrealism', 'juggernaut',
+  'controlnet', 'controlnet',
+  'lora', 'lycoris', 'embedding',
+  'vae', 'clip skip',
+  'euler', 'ddim', 'dpm++', 'unipc',
+  'cfg scale', 'steps', 'sampler',
+  'seed:', 'model:', 'prompt:', 'negative prompt:',
+  'civitai.com', 'huggingface.co', 'github.com/comfyanonymous',
 ]
 
 /** Busca marcas de metadatos IA en los primeros 2000 bytes. */
@@ -34,6 +92,18 @@ function detectarFirmaMetadatosIA(buffer: Buffer): string | null {
 const DOMINIOS_IA = [
   'midjourney.com', 'openai.com', 'civitai.com', 'stability.ai',
   'nightcafe.studio', 'bing.com/create',
+  'gemini.google.com', 'bard.google.com', 'claude.ai', 'anthropic.com',
+  'perplexity.ai', 'perplexity.com',
+  'leonardo.ai', 'runwayml.com', 'pika.art', 'sora.openai.com',
+  'firefly.adobe.com', 'canva.com', 'designer.microsoft.com',
+  'huggingface.co', 'replicate.com', 'fal.ai', 'ideogram.ai',
+  'playgroundai.com', 'starryai.com', 'wombo.art', 'lensa.app',
+  'artbreeder.com', 'deepai.org', 'craiyon.com', 'hotpot.ai',
+  'fotor.com', 'cutout.pro', 'photoroom.com', 'remove.bg',
+  'upscale.media', 'bigjpg.com', 'waifu2x.udp.jp', 'topazlabs.com',
+  'magnific.ai', 'krea.ai', 'everart.ai', 'getimg.ai',
+  'mage.space', 'neural.love', 'artflow.ai', 'dreamstudio.ai',
+  'openjourney.com', 'anything-v.com',
 ]
 
 const CATEGORIAS_PROHIBIDAS = [
@@ -52,6 +122,8 @@ interface SafeSearchResp {
   violence?: string
   racy?: string
   spoof?: string
+  /** Solo se evalúa para fotogramas de vídeo (sangre; guía vídeos §A). */
+  medical?: string
 }
 interface LabelResp {
   description?: string
@@ -123,10 +195,10 @@ async function analizarVision(fotos: { url: string; content: Buffer }[]): Promis
  * Valida fotos ya subidas al Blob (URLs tuyas). Lanza Error si alguna es rechazada.
  * Fail-open: errores de Vision/descarga no bloquean (guía §10).
  */
-export async function validarFotosIA(fotos: { url: string }[]): Promise<void> {
+export async function validarFotosIA(fotos: { url: string; origen?: 'foto' | 'video' }[]): Promise<void> {
   if (fotos.length === 0) return
 
-  // Capa 1 — firmas de metadatos (rechazo duro).
+  // Capa 1 — firmas de metadatos (rechazo duro, aplica igual a fotogramas de vídeo).
   for (const foto of fotos) {
     const buf = await descargar(foto.url)
     if (!buf) continue
@@ -140,11 +212,11 @@ export async function validarFotosIA(fotos: { url: string }[]): Promise<void> {
 
   // Capa 2 — Google Vision (solo si hay key y hay buffer completo).
   if (!KEY) return
-  const completas: { url: string; content: Buffer }[] = []
+  const completas: { url: string; content: Buffer; origen: 'foto' | 'video' }[] = []
   for (const foto of fotos) {
     const buf = await descargar(foto.url)
     if (!buf || buf.length <= 2000) continue // cabecera → no analizable por Vision
-    completas.push({ url: foto.url, content: buf })
+    completas.push({ url: foto.url, content: buf, origen: foto.origen })
   }
   if (completas.length === 0) return
 
@@ -156,6 +228,7 @@ export async function validarFotosIA(fotos: { url: string }[]): Promise<void> {
       if (r.error?.message) throw new Error(r.error.message)
 
       // 2a) Gore/NSFW (SafeSearch): adult/violencia LIKELY+, racy VERY_LIKELY.
+      //     Para fotogramas de vídeo se evalúa además `medical` (sangre, guía vídeos §A).
       const s = r.safeSearchAnnotation ?? {}
       const lvl = (v: string | undefined) => v ?? ''
       const esPornoOGore =
@@ -165,6 +238,14 @@ export async function validarFotosIA(fotos: { url: string }[]): Promise<void> {
       if (esPornoOGore) {
         throw new Error(
           `El archivo "${nombre}" contiene material no permitido (contenido explícito o violencia).`,
+        )
+      }
+      if (
+        completas[i]?.origen === 'video' &&
+        ['LIKELY', 'VERY_LIKELY'].includes(lvl(s.medical))
+      ) {
+        throw new Error(
+          `El vídeo "${nombre}" contiene imágenes de sangre o contenido médico no permitido.`,
         )
       }
 

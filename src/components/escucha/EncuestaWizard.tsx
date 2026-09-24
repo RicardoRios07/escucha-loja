@@ -10,7 +10,7 @@ import { gravedadColor } from "../../lib/escucha/geo"
 import type { CategoriaId, Gravedad, Frecuencia, TiempoProblema, MvpDenuncia } from "../../lib/escucha/types"
 import {
   MAX_MEDIA_FILES, MAX_VIDEO_SECONDS, getVideoDuration,
-  validateMediaFile, subirEvidencia, isMediaRemota, type MediaRemota,
+  validateMediaFile, subirEvidencia, isMediaRemota, extraerFotogramasDeVideo, type MediaRemota,
 } from "../../lib/escucha/media"
 import { eliminarEvidencia } from "../../lib/escucha/repo"
 import PageBanner from "./PageBanner"
@@ -138,6 +138,8 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
   const [showAddress, setShowAddress] = useState(false)
   const modalRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLElement | null>(null)
+  /** URL de cada vídeo → fotogramas extraídos (0.5s, mitad, final−1s). Solo validación Vision; no se persisten. */
+  const framesRef = useRef<{ videoUrl: string; frames: string[] }[]>([])
   const [progressFeedback, setProgressFeedback] = useState("")
 
   // Restaurar borrador (+ refs frescas para el listener global de Escape,
@@ -238,6 +240,8 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
         calleSecundaria: formData.calleSecundaria,
         referencia: formData.referencia,
         evidencia: formData.media,
+        // Fotogramas extraídos del vídeo (validación Vision fail-open; el server los descarta).
+        ...(framesRef.current.length ? { fotogramas: framesRef.current.flatMap(r => r.frames).slice(0, 3) } : {}),
       })
       setSnackbar({ show: true, msg: "¡Gracias por alzar tu voz! Tu aporte fue registrado.", type: "success" })
       setTimeout(() => { setSnackbar({ show: false, msg: "", type: "success" }); onComplete(creada.id, creada); triggerRef.current?.focus() }, 1800)
@@ -268,8 +272,15 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
       const check = await validateMediaFile(f)
       if (!check.ok || !check.kind) { firstError = firstError || check.error || "Archivo no válido"; continue }
       try {
-        const duration = check.kind === "video" ? await getVideoDuration(f) : undefined
-        staged.push(await subirEvidencia(f, check.kind, duration))
+        let duration: number | undefined
+        let frames: string[] = []
+        if (check.kind === "video") {
+          duration = await getVideoDuration(f)
+          frames = await extraerFotogramasDeVideo(f, duration)
+        }
+        const subida = await subirEvidencia(f, check.kind, duration)
+        staged.push(subida)
+        if (frames.length) framesRef.current.push({ videoUrl: subida.url, frames })
       } catch (e) {
         firstError = firstError || (e instanceof Error ? e.message : "No se pudo subir el archivo")
       }

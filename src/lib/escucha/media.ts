@@ -125,6 +125,60 @@ export function getVideoDuration(file: File | Blob): Promise<number> {
   })
 }
 
+/**
+ * Extrae hasta 3 fotogramas de un vídeo (0.5s, mitad, final−1s) en el navegador
+ * y los sube al Blob como fotos. Ilustran el caso sin persistirse ni ocupar slot
+ * de evidencia visible (el server solo los valida con la capa Vision y los descarta).
+ * Fail-open por fotograma: cualquier fallo se salta, nunca bloquea el envío.
+ */
+export async function extraerFotogramasDeVideo(file: File, duration: number): Promise<string[]> {
+  const ts = [0.5, duration / 2, Math.max(0, duration - 1 < 0.5 ? 0 : duration - 1)]
+  const urls: string[] = []
+  for (let i = 0; i < ts.length; i++) {
+    try {
+      const blob = await fotogramaEnPng(file, ts[i])
+      if (!blob) continue
+      const f = new File([blob], `fotograma-${i + 1}.png`, { type: 'image/png' })
+      const subida = await subirEvidencia(f, 'foto')
+      urls.push(subida.url)
+    } catch {
+      /* fail-open: un frame ilegible no impide reportar */
+    }
+  }
+  return urls
+}
+
+function fotogramaEnPng(file: File, time: number): Promise<Blob | null> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file)
+    const v = document.createElement('video')
+    v.muted = true
+    v.playsInline = true
+    let fallo = false
+    const fail = () => { if (!fallo) { fallo = true; URL.revokeObjectURL(url); resolve(null) } }
+    v.onerror = fail
+    v.onloadeddata = () => {
+      try {
+        v.currentTime = Math.min(Math.max(0, time), Number.isFinite(v.duration) ? v.duration : time)
+      } catch { fail(); return }
+    }
+    v.onseeked = () => {
+      try {
+        const MAX = 640
+        const escala = Math.min(1, MAX / (v.videoWidth || 1))
+        const c = document.createElement('canvas')
+        c.width = Math.max(1, Math.round((v.videoWidth || 1) * escala))
+        c.height = Math.max(1, Math.round((v.videoHeight || 1) * escala))
+        const ctx = c.getContext('2d')
+        if (!ctx) { fail(); return }
+        ctx.drawImage(v, 0, 0, c.width, c.height)
+        c.toBlob((b) => { URL.revokeObjectURL(url); resolve(b) }, 'image/jpeg', 0.82)
+      } catch { fail() }
+    }
+    v.src = url
+  })
+}
+
 /** Valida tamaño + tipo + duración (video). Devuelve kind o mensaje de error. */
 export async function validateMediaFile(file: File): Promise<MediaCheck> {
   if (file.size > MAX_FILE_BYTES) {

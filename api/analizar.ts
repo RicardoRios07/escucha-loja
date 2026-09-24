@@ -197,7 +197,7 @@ export default async function handler(req: IncomingMessage, res: VercelRes) {
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: JSON.stringify(payload) },
       ],
-      max_tokens: 1024,
+      max_tokens: 3000,
       temperature: 0.2,
     })
 
