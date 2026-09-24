@@ -138,14 +138,6 @@ interface ImageResp {
   error?: { message?: string }
 }
 
-/** Nombre de archivo desde la URL del blob (para logs/debug). */
-const _nombreDe = (url: string): string => {
-  try {
-    return new URL(url).pathname.split('/').pop() ?? url
-  } catch {
-    return url
-  }
-}
 
 /** Descarga la foto (con timeout y guardia de tamaño para Vision). */
 async function descargar(url: string): Promise<Buffer | null> {
