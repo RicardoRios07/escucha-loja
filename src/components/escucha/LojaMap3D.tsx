@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 // maplibre-gl se importa solo como tipos aquí: el módulo real se carga diferido
 // (import dinámico) cuando el mapa entra al viewport — ~1MB fuera del camino crítico.
@@ -455,6 +455,186 @@ export default function LojaMap3D({
     // Nota: MediaRef heredadas ya no se crean; si apareciera una, no hay foto.
   }
 
+  /**
+   * Crea el source y las capas de reportes si faltan, o actualiza sus datos.
+   * Idempotente y auto-reparable: si el handler `load` se abortó antes de
+   * crearlas (sprites, tiles), el efecto de actualización las reconstruye
+   * al llegar los datos en vez de quedarse sin pines para siempre.
+   */
+  const asegurarCapaReportes = useCallback(() => {
+    const map = mapRef.current
+    if (!map || !map.isStyleLoaded()) return
+    try {
+      const pinsSource = map.getSource('reports') as maplibregl.GeoJSONSource | undefined
+      if (!pinsSource) {
+        map.addSource('reports', {
+          type: 'geojson',
+          data: { type: 'FeatureCollection', features: pinFeaturesRef.current },
+        })
+      } else {
+        pinsSource.setData({ type: 'FeatureCollection', features: pinFeaturesRef.current })
+      }
+
+      // El heat va debajo de los pines aunque se reconstruya después.
+      const encimaDe = map.getLayer('reports-pins')
+        ? 'reports-pins'
+        : map.getLayer('reports-pins-fallback')
+          ? 'reports-pins-fallback'
+          : undefined
+      if (!map.getLayer('reports-heat')) {
+        map.addLayer(
+          {
+            id: 'reports-heat',
+            type: 'heatmap',
+            source: 'reports',
+            maxzoom: 17,
+            paint: {
+              'heatmap-weight': ['get', 'intensity'],
+              'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 10, 2.2, 16, 5],
+              'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 10, 18, 16, 48],
+              'heatmap-opacity': 0.75,
+              'heatmap-color': [
+                'interpolate',
+                ['linear'],
+                ['heatmap-density'],
+                0,
+                'rgba(13,185,84,0)',
+                0.2,
+                'rgba(13,185,84,0.8)',
+                0.45,
+                'rgba(0,38,147,0.9)',
+                0.7,
+                'rgba(254,100,15,0.95)',
+                1,
+                'rgba(254,65,2,0.95)',
+              ],
+            },
+          },
+          encimaDe,
+        )
+      }
+
+      const capaPins = spritesOkRef.current ? 'reports-pins' : 'reports-pins-fallback'
+      if (!map.getLayer(capaPins)) {
+        if (spritesOkRef.current) {
+          map.addLayer({
+            id: 'reports-pins',
+            type: 'symbol',
+            source: 'reports',
+            minzoom: 11,
+            layout: {
+              'icon-image': ['get', 'spriteId'],
+              'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.85, 17, 1.1],
+              'icon-allow-overlap': true,
+              'icon-ignore-placement': true,
+            },
+          })
+        } else {
+          map.addLayer({
+            id: 'reports-pins-fallback',
+            type: 'circle',
+            source: 'reports',
+            minzoom: 11,
+            paint: {
+              'circle-radius': ['interpolate', ['linear'], ['get', 'intensity'], 0, 6, 1, 15],
+              'circle-color': [
+                'match',
+                ['get', 'spriteKey'],
+                'agua', '#35C2FF',
+                'recoleccion', '#16a34a',
+                'movilidad', '#f59e0b',
+                'servicios', '#8b5cf6',
+                '#8b5cf6',
+              ],
+              'circle-stroke-width': 2,
+              'circle-stroke-color': '#ffffff',
+              'circle-opacity': 0.95,
+            },
+          })
+        }
+        map.on('mouseenter', capaPins, () => {
+          map.getCanvas().style.cursor = 'pointer'
+        })
+        map.on('mouseleave', capaPins, () => {
+          map.getCanvas().style.cursor = ''
+        })
+        map.on('click', capaPins, (event) => {
+          const feature = event.features?.[0] as unknown as ReportFeature | undefined
+          if (!feature?.properties || !feature.geometry) return
+          const coords = (feature.geometry as { coordinates?: [number, number] }).coordinates
+          if (!coords || !isValidLngLat(Number(coords[0]), Number(coords[1]))) return
+          openReportPopup(feature, [Number(coords[0]), Number(coords[1])])
+        })
+      }
+
+      if (!lite) {
+        // Burbujas de cluster (solo cuando hay más de 1 reporte en la zona).
+        const clusterSource = map.getSource('reports-clusters') as maplibregl.GeoJSONSource | undefined
+        if (!clusterSource) {
+          map.addSource('reports-clusters', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: clusterFeaturesRef.current },
+            cluster: true,
+            clusterRadius: 42,
+            clusterMaxZoom: 15,
+            clusterProperties: { reportes: ['+', ['get', 'count']] },
+          })
+        } else {
+          clusterSource.setData({ type: 'FeatureCollection', features: clusterFeaturesRef.current })
+        }
+        if (!map.getLayer('cluster-bubbles')) {
+          map.addLayer({
+            id: 'cluster-bubbles',
+            type: 'circle',
+            source: 'reports-clusters',
+            maxzoom: 15.5,
+            filter: ['>', ['coalesce', ['get', 'reportes'], 0], 1],
+            paint: {
+              'circle-color': '#002693',
+              'circle-opacity': 0.92,
+              'circle-stroke-width': 2.5,
+              'circle-stroke-color': '#ffffff',
+              'circle-radius': ['interpolate', ['linear'], ['get', 'reportes'], 2, 17, 40, 30],
+            },
+          })
+          map.on('mouseenter', 'cluster-bubbles', () => {
+            map.getCanvas().style.cursor = 'pointer'
+          })
+          map.on('mouseleave', 'cluster-bubbles', () => {
+            map.getCanvas().style.cursor = ''
+          })
+          map.on('click', 'cluster-bubbles', (event) => {
+            const feature = event.features?.[0]
+            const coords = (feature?.geometry as { coordinates?: [number, number] } | undefined)?.coordinates
+            if (!coords) return
+            map.easeTo({
+              center: [Number(coords[0]), Number(coords[1])],
+              zoom: Math.min(map.getZoom() + 2, 15.5),
+              duration: 600,
+            })
+          })
+        }
+        if (!map.getLayer('cluster-counts')) {
+          map.addLayer({
+            id: 'cluster-counts',
+            type: 'symbol',
+            source: 'reports-clusters',
+            maxzoom: 15.5,
+            filter: ['>', ['coalesce', ['get', 'reportes'], 0], 1],
+            layout: {
+              'text-field': ['get', 'reportes'],
+              'text-size': 12.5,
+              'text-font': ['Noto Sans Bold'],
+            },
+            paint: { 'text-color': '#ffffff' },
+          })
+        }
+      }
+    } catch {
+      /* Reintenta en la próxima actualización de datos. */
+    }
+  }, [lite])
+
   // Carga diferida: el módulo de maplibre (~1MB) y el mapa solo inicializan
   // cuando la sección está cerca del viewport.
   useEffect(() => {
@@ -777,159 +957,20 @@ export default function LojaMap3D({
       }
 
       // Sprites de pins (teardrop + icono por categoría). Si fallan, círculos.
-      spritesOkRef.current = await addCategoryPinSprites(
-        map,
-        CATEGORIAS_VISUALES.map((c) => ({ id: `pin-${c.key}`, color: c.color, icono: c.icono })),
-      )
+      // Protegido: un fallo aquí ya no aborta la capa de reportes.
+      try {
+        spritesOkRef.current = await addCategoryPinSprites(
+          map,
+          CATEGORIAS_VISUALES.map((c) => ({ id: `pin-${c.key}`, color: c.color, icono: c.icono })),
+        )
+      } catch {
+        spritesOkRef.current = false
+      }
 
       // Reportes: heatmap + pins (+ clusters en modo full), siempre sobre los edificios.
-      try {
-        map.addSource('reports', {
-          type: 'geojson',
-          data: { type: 'FeatureCollection', features: pinFeaturesRef.current },
-        })
-        map.addLayer({
-          id: 'reports-heat',
-          type: 'heatmap',
-          source: 'reports',
-          maxzoom: 17,
-          paint: {
-            'heatmap-weight': ['get', 'intensity'],
-            // Kernel amplio + intensidad alta: con pocos reportes dispersos cada
-            // punto forma su mancha (verde→azul); donde se solapan, núcleo naranja.
-            // Paradas bajas para la vista cantonal (z10).
-            'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 10, 2.2, 16, 5],
-            'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 10, 18, 16, 48],
-            'heatmap-opacity': 0.75,
-            'heatmap-color': [
-              'interpolate',
-              ['linear'],
-              ['heatmap-density'],
-              0,
-              'rgba(13,185,84,0)',
-              0.2,
-              'rgba(13,185,84,0.8)',
-              0.45,
-              'rgba(0,38,147,0.9)',
-              0.7,
-              'rgba(254,100,15,0.95)',
-              1,
-              'rgba(254,65,2,0.95)',
-            ],
-          },
-        })
-
-        if (spritesOkRef.current) {
-          map.addLayer({
-            id: 'reports-pins',
-            type: 'symbol',
-            source: 'reports',
-            minzoom: 11,
-            layout: {
-              'icon-image': ['get', 'spriteId'],
-              'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.85, 17, 1.1],
-              'icon-allow-overlap': true,
-              'icon-ignore-placement': true,
-            },
-          })
-        } else {
-          map.addLayer({
-            id: 'reports-pins-fallback',
-            type: 'circle',
-            source: 'reports',
-            minzoom: 11,
-            paint: {
-              'circle-radius': ['interpolate', ['linear'], ['get', 'intensity'], 0, 6, 1, 15],
-              'circle-color': [
-                'match',
-                ['get', 'spriteKey'],
-                'agua', '#35C2FF',
-                'recoleccion', '#16a34a',
-                'movilidad', '#f59e0b',
-                'servicios', '#8b5cf6',
-                '#8b5cf6',
-              ],
-              'circle-stroke-width': 2,
-              'circle-stroke-color': '#ffffff',
-              'circle-opacity': 0.95,
-            },
-          })
-        }
-
-        for (const layerId of spritesOkRef.current ? ['reports-pins'] : ['reports-pins-fallback']) {
-          map.on('mouseenter', layerId, () => {
-            map.getCanvas().style.cursor = 'pointer'
-          })
-          map.on('mouseleave', layerId, () => {
-            map.getCanvas().style.cursor = ''
-          })
-          map.on('click', layerId, (event) => {
-            const feature = event.features?.[0] as unknown as ReportFeature | undefined
-            if (!feature?.properties || !feature.geometry) return
-            const coords = (feature.geometry as { coordinates?: [number, number] }).coordinates
-            if (!coords || !isValidLngLat(Number(coords[0]), Number(coords[1]))) return
-            openReportPopup(feature, [Number(coords[0]), Number(coords[1])])
-          })
-        }
-
-        if (!lite) {
-          // Burbujas de cluster (solo cuando hay más de 1 reporte en la zona).
-          map.addSource('reports-clusters', {
-            type: 'geojson',
-            data: { type: 'FeatureCollection', features: clusterFeaturesRef.current },
-            cluster: true,
-            clusterRadius: 42,
-            clusterMaxZoom: 15,
-            clusterProperties: { reportes: ['+', ['get', 'count']] },
-          })
-          map.addLayer({
-            id: 'cluster-bubbles',
-            type: 'circle',
-            source: 'reports-clusters',
-            maxzoom: 15.5,
-            // coalesce: las features hoja no tienen 'reportes' (null) y no deben pintar burbuja.
-            filter: ['>', ['coalesce', ['get', 'reportes'], 0], 1],
-            paint: {
-              'circle-color': '#002693',
-              'circle-opacity': 0.92,
-              'circle-stroke-width': 2.5,
-              'circle-stroke-color': '#ffffff',
-              'circle-radius': ['interpolate', ['linear'], ['get', 'reportes'], 2, 17, 40, 30],
-            },
-          })
-          map.addLayer({
-            id: 'cluster-counts',
-            type: 'symbol',
-            source: 'reports-clusters',
-            maxzoom: 15.5,
-            filter: ['>', ['coalesce', ['get', 'reportes'], 0], 1],
-            layout: {
-              'text-field': ['get', 'reportes'],
-              'text-size': 12.5,
-              'text-font': ['Noto Sans Bold'],
-            },
-            paint: { 'text-color': '#ffffff' },
-          })
-          map.on('mouseenter', 'cluster-bubbles', () => {
-            map.getCanvas().style.cursor = 'pointer'
-          })
-          map.on('mouseleave', 'cluster-bubbles', () => {
-            map.getCanvas().style.cursor = ''
-          })
-          map.on('click', 'cluster-bubbles', (event) => {
-            const feature = event.features?.[0]
-            const coords = (feature?.geometry as { coordinates?: [number, number] } | undefined)?.coordinates
-            if (!coords) return
-            map.easeTo({
-              center: [Number(coords[0]), Number(coords[1])],
-              zoom: Math.min(map.getZoom() + 2, 15.5),
-              duration: 600,
-            })
-          })
-        }
-      } catch {
-        /* Sin capa de reportes (no debería ocurrir). */
-      }
+      // Creación idempotente: si algo falla aquí, el efecto de actualización
+      // la reconstruye al llegar los datos (antes quedaba sin pines para siempre).
+      asegurarCapaReportes()
 
       // Muestreo perezoso del color de techo según el viewport (idle = tiles
       // listos tras la carga; moveend = tras cada paneo/zoom).
@@ -950,21 +991,13 @@ export default function LojaMap3D({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inView])
 
-  // Actualiza los datos cuando cambian reportes o filtros.
+  // Crea la capa si falta (auto-repara un `load` abortado) y actualiza datos.
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    const apply = () => {
-      const pinsSource = map.getSource('reports') as maplibregl.GeoJSONSource | null
-      if (pinsSource) pinsSource.setData({ type: 'FeatureCollection', features: pinFeaturesRef.current })
-      const clusterSource = map.getSource('reports-clusters') as maplibregl.GeoJSONSource | null
-      if (clusterSource) {
-        clusterSource.setData({ type: 'FeatureCollection', features: clusterFeaturesRef.current })
-      }
-    }
-    if (map.isStyleLoaded()) apply()
-    else map.once('load', apply)
-  }, [pins.features, clusterFeatures])
+    if (map.isStyleLoaded()) asegurarCapaReportes()
+    else map.once('load', asegurarCapaReportes)
+  }, [pins.features, clusterFeatures, asegurarCapaReportes])
 
   const handleUseLocation = () => {
     const map = mapRef.current

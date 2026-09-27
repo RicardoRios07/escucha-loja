@@ -25,6 +25,13 @@ import {
 } from "react-icons/ri"
 const ComplaintMap = lazy(() => import("./ComplaintMap"))
 
+/** Spinner accesible reutilizable (CSS puro, sin dependencias). */
+function Spinner({ className = "h-5 w-5", borde = "border-[3px]" }: { className?: string; borde?: string }) {
+  return (
+    <span role="status" aria-label="Cargando" className={`inline-block animate-spin rounded-full ${borde} border-[#002693]/20 border-t-[#002693] ${className}`} />
+  )
+}
+
 /** Modal de salida: sin borrador local, salir descarta lo no enviado. */
 function ConfirmarSalida({
   completados,
@@ -128,6 +135,8 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
   const photoInputRef = useRef<HTMLInputElement>(null)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [isProcessingMedia, setIsProcessingMedia] = useState(false)
+  // Archivos subiéndose ahora mismo (para los tiles animados de carga).
+  const [subiendo, setSubiendo] = useState(0)
   const [dragOver, setDragOver] = useState(false)
   const [showRecorder, setShowRecorder] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
@@ -140,6 +149,8 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
   const triggerRef = useRef<HTMLElement | null>(null)
   /** URL de cada vídeo → fotogramas extraídos (0.5s, mitad, final−1s). Solo validación Vision; no se persisten. */
   const framesRef = useRef<{ videoUrl: string; frames: string[] }[]>([])
+  // Candado anti-doble-envío: el disabled del botón no basta si llegan dos clics antes del re-render.
+  const enviandoRef = useRef(false)
   const [progressFeedback, setProgressFeedback] = useState("")
 
   // Restaurar borrador (+ refs frescas para el listener global de Escape,
@@ -207,13 +218,16 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
   }
 
   const handleSubmit = async () => {
+    if (enviandoRef.current) return
     setSubmitError(null)
     if (!formData.categoryId) { setSubmitError("Selecciona una categoría"); setStep(1); return }
     if (!formData.descripcion.trim()) { setSubmitError("Describe lo sucedido"); setStep(3); return }
     if (formData.media.length === 0) { setSubmitError("Adjunta al menos una evidencia"); setStep(3); return }
     if (!user) { setSubmitError("Tu sesión expiró. Vuelve a ingresar."); return }
+    enviandoRef.current = true
     setIsSubmitting(true)
     setProgressFeedback("Guardando reporte...")
+    let ok = false
     try {
       // Territorio declarado o resuelto por punto (nunca vacío si hay ubicación).
       let parroquiaId = formData.parroquiaId
@@ -244,13 +258,16 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
         ...(framesRef.current.length ? { fotogramas: framesRef.current.flatMap(r => r.frames).slice(0, 3) } : {}),
       })
       setSnackbar({ show: true, msg: "¡Gracias por alzar tu voz! Tu reporte fue registrado.", type: "success" })
-      setTimeout(() => { setSnackbar({ show: false, msg: "", type: "success" }); onComplete(creada.id, creada); triggerRef.current?.focus() }, 1800)
+      ok = true
+      // El overlay sigue hasta onComplete: nada es clicable mientras se crea y se confirma.
+      setTimeout(() => { setSnackbar({ show: false, msg: "", type: "success" }); setIsSubmitting(false); setProgressFeedback(""); onComplete(creada.id, creada); triggerRef.current?.focus() }, 1800)
     } catch (e: any) {
       setSubmitError(e.message || "No se pudo registrar tu reporte")
       setSnackbar({ show: true, msg: e.message || "No se pudo registrar", type: "error" })
       setTimeout(() => setSnackbar({ show: false, msg: "", type: "error" }), 4000)
     } finally {
-      setIsSubmitting(false); setProgressFeedback("")
+      enviandoRef.current = false
+      if (!ok) { setIsSubmitting(false); setProgressFeedback("") }
     }
   }
 
@@ -265,12 +282,13 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
       return
     }
     setIsProcessingMedia(true)
+    setSubiendo(arr.length)
     setProgressFeedback('Subiendo evidencia…')
     let firstError: string | null = null
     const staged: MediaRemota[] = []
     for (const f of arr) {
       const check = await validateMediaFile(f)
-      if (!check.ok || !check.kind) { firstError = firstError || check.error || "Archivo no válido"; continue }
+      if (!check.ok || !check.kind) { firstError = firstError || check.error || "Archivo no válido"; setSubiendo(n => Math.max(0, n - 1)); continue }
       try {
         let duration: number | undefined
         let frames: string[] = []
@@ -283,11 +301,14 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
         if (frames.length) framesRef.current.push({ videoUrl: subida.url, frames })
       } catch (e) {
         firstError = firstError || (e instanceof Error ? e.message : "No se pudo subir el archivo")
+      } finally {
+        setSubiendo(n => Math.max(0, n - 1))
       }
     }
     if (firstError) setUploadError(firstError)
     if (staged.length) setFormData(p => ({ ...p, media: [...p.media, ...staged].slice(0, MAX_MEDIA_FILES) }))
     setIsProcessingMedia(false)
+    setSubiendo(0)
     setProgressFeedback('')
     if (fileInputRef.current) fileInputRef.current.value = ""
     if (photoInputRef.current) photoInputRef.current.value = ""
@@ -646,12 +667,12 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
                   onDrop={onDrop}
                   className={`hidden sm:flex h-20 border-2 border-dashed rounded-xl bg-gray-50 flex-col items-center justify-center text-xs text-gray-500 ${dragOver ? "bg-[#002693]/5 border-[#002693]" : ""}`}
                 >
-                  {isProcessingMedia ? "Procesando archivos…" : "O arrastra fotos/videos aquí (máx 10s por video)"}
+                  {isProcessingMedia ? <span className="flex items-center gap-2"><Spinner className="h-4 w-4" borde="border-2" /> Procesando archivos…</span> : "O arrastra fotos/videos aquí (máx 10s por video)"}
                 </div>
 
                 {uploadError && <p role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-3 py-2 flex items-center gap-2"><RiErrorWarningLine aria-hidden="true" /> {uploadError}</p>}
 
-                {formData.media.length > 0 && (
+                {(formData.media.length > 0 || subiendo > 0) && (
                   <div className="grid grid-cols-3 gap-3" role="list" aria-label="Evidencia adjunta">
                     {formData.media.map((ref, i) => (
                       <div key={`ev-${i}`} role="listitem" className="relative aspect-[4/3] rounded-xl overflow-hidden border bg-gray-100">
@@ -662,6 +683,12 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
                           </span>
                         )}
                         <button onClick={() => removeMedia(i)} aria-label={`Eliminar evidencia ${i + 1}`} className="absolute top-1 right-1 min-w-[44px] min-h-[44px] p-2.5 bg-black/60 hover:bg-black/80 text-white rounded-full flex items-center justify-center backdrop-blur-sm focus-visible:ring-2 focus-visible:ring-white"><RiCloseLine aria-hidden="true" /></button>
+                      </div>
+                    ))}
+                    {Array.from({ length: subiendo }).map((_, i) => (
+                      <div key={`subiendo-${i}`} role="listitem" aria-label="Subiendo evidencia" className="relative aspect-[4/3] rounded-xl overflow-hidden border border-[#002693]/20 bg-[#002693]/[0.04] flex flex-col items-center justify-center gap-2 animate-pulse">
+                        <Spinner className="h-8 w-8" />
+                        <span className="text-[11px] font-bold text-[#002693]/70">Subiendo…</span>
                       </div>
                     ))}
                   </div>
@@ -916,7 +943,7 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
                 <div className="flex gap-3">
                   <button onClick={() => setStep(4)} disabled={isSubmitting} aria-busy={isSubmitting} className="min-h-[52px] flex-1 inline-flex items-center justify-center gap-2 rounded-2xl border font-bold text-gray-600 hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-[#002693] disabled:opacity-40 active:scale-[0.98]"><RiArrowLeftLine aria-hidden="true" /> Anterior</button>
                   <button onClick={handleSubmit} disabled={isSubmitting} aria-busy={isSubmitting} className="min-h-[52px] flex-[2] rounded-2xl bg-[#0db954] hover:bg-green-700 text-white font-extrabold shadow-[0_14px_28px_-12px_rgba(13,185,84,0.7)] disabled:opacity-40 disabled:shadow-none focus-visible:ring-2 focus-visible:ring-offset-2 flex items-center justify-center gap-2 active:scale-[0.98]">
-                    {isSubmitting ? "Guardando..." : <><RiSendPlaneLine aria-hidden="true" /> Enviar reporte</>}
+                    {isSubmitting ? <><span aria-hidden="true" className="inline-block h-5 w-5 animate-spin rounded-full border-[3px] border-white/30 border-t-white" /> Guardando…</> : <><RiSendPlaneLine aria-hidden="true" /> Enviar reporte</>}
                   </button>
                 </div>
               </div>
@@ -927,6 +954,20 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
 
         {snackbar.show && (
           <div role={snackbar.type === "success" ? "status" : "alert"} aria-live={snackbar.type === "success" ? "polite" : "assertive"} aria-atomic="true" className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-[60] px-5 py-3 rounded-xl shadow-xl text-white text-sm font-medium max-w-[90vw] ${snackbar.type === "success" ? "bg-[#0db954]" : "bg-red-600"}`}>{snackbar.msg}</div>
+        )}
+
+        {isSubmitting && (
+          <div role="alertdialog" aria-modal="true" aria-label={snackbar.show && snackbar.type === "success" ? "Reporte creado" : "Creando reporte"} className="fixed inset-0 z-[70] grid place-items-center bg-[#002693]/60 p-6 backdrop-blur-sm">
+            <div className="flex w-full max-w-xs flex-col items-center gap-3 rounded-2xl bg-white px-8 py-7 text-center shadow-2xl">
+              {snackbar.show && snackbar.type === "success" ? (
+                <span className="grid h-12 w-12 place-items-center rounded-full bg-[#0db954] text-white"><RiCheckboxCircleFill className="text-2xl" aria-hidden="true" /></span>
+              ) : (
+                <Spinner className="h-10 w-10" borde="border-4" />
+              )}
+              <p className="text-sm font-extrabold text-[#111]">{snackbar.show && snackbar.type === "success" ? "¡Reporte creado!" : "Creando tu reporte…"}</p>
+              <p className="text-xs text-gray-500">{snackbar.show && snackbar.type === "success" ? "Gracias por alzar tu voz." : "No cierres esta ventana"}</p>
+            </div>
+          </div>
         )}
 
         {showConfirmClose && (
