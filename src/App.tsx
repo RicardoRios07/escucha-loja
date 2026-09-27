@@ -20,11 +20,79 @@ const MisReportesPage = lazy(() => import('./pages/vecino/MisReportesPage'))
 const ReporteDetallePage = lazy(() => import('./pages/vecino/ReporteDetallePage'))
 const ComunidadPage = lazy(() => import('./pages/vecino/ComunidadPage'))
 const CuentaPage = lazy(() => import('./pages/vecino/CuentaPage'))
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage'))
 
 function ScrollToTop() {
   const { pathname } = useLocation()
   useEffect(() => {
     window.scrollTo({ top: 0 })
+  }, [pathname])
+  return null
+}
+
+/**
+ * Head dinámico por ruta (la SPA sirve un solo index.html).
+ * /terminos recibe título/meta/canonical propios; las rutas
+ * desconocidas (404) se marcan noindex para no indexar basura.
+ */
+const HOME_HEAD = {
+  title: 'Jesús Escucha Loja - La ciudad tiene la palabra',
+  description:
+    'Jesús Escucha: canal ciudadano para reportar con foto o video lo que pasa en tu barrio — agua, saneamiento, movilidad y servicios — y sumar al mapa de la ciudad.',
+  canonical: 'https://jesusescucha.com/',
+  robots: 'index, follow',
+}
+
+const HEAD_POR_RUTA: Record<string, typeof HOME_HEAD> = {
+  '/terminos': {
+    title: 'Términos y condiciones · Jesús Escucha Loja',
+    description:
+      'Términos y condiciones de Jesús Escucha: qué datos tratamos, qué se publica en el mapa y tus derechos según la ley ecuatoriana.',
+    canonical: 'https://jesusescucha.com/terminos',
+    robots: 'index, follow',
+  },
+}
+
+const RUTAS_EXACTAS = ['/', '/ingresar', '/acceso', '/bienvenida', '/terminos', '/encuesta', '/panel']
+const RUTAS_PREFIJO = ['/vecino', '/admin']
+
+function setMetaPorNombre(nombre: string, contenido: string) {
+  let etiqueta = document.head.querySelector<HTMLMetaElement>(`meta[name="${nombre}"]`)
+  if (!etiqueta) {
+    etiqueta = document.createElement('meta')
+    etiqueta.setAttribute('name', nombre)
+    document.head.appendChild(etiqueta)
+  }
+  etiqueta.setAttribute('content', contenido)
+}
+
+function setCanonical(href: string) {
+  let enlace = document.head.querySelector<HTMLLinkElement>('link[rel="canonical"]')
+  if (!enlace) {
+    enlace = document.createElement('link')
+    enlace.setAttribute('rel', 'canonical')
+    document.head.appendChild(enlace)
+  }
+  enlace.setAttribute('href', href)
+}
+
+function RouteHead() {
+  const { pathname } = useLocation()
+  useEffect(() => {
+    const conocida =
+      RUTAS_EXACTAS.includes(pathname) || RUTAS_PREFIJO.some((r) => pathname === r || pathname.startsWith(`${r}/`))
+    const head = conocida
+      ? (HEAD_POR_RUTA[pathname] ?? HOME_HEAD)
+      : {
+          title: 'Página no encontrada · Jesús Escucha',
+          description: HOME_HEAD.description,
+          canonical: HOME_HEAD.canonical,
+          robots: 'noindex, nofollow',
+        }
+    document.title = head.title
+    setMetaPorNombre('description', head.description)
+    setMetaPorNombre('robots', head.robots)
+    setCanonical(head.canonical)
   }, [pathname])
   return null
 }
@@ -41,6 +109,7 @@ export default function App() {
     <AuthProvider>
       <div className="flex min-h-screen flex-col bg-white text-[#111111] selection:bg-[#FE4102] selection:text-white">
         <ScrollToTop />
+        <RouteHead />
         {showCampaignNav && <Navbar />}
         <main className="flex-1">
           <Suspense fallback={<LoadingScreen />}>
@@ -87,7 +156,7 @@ export default function App() {
                 <Route path="analisis" element={<AnalisisPage />} />
               </Route>
               <Route path="/panel" element={<Navigate to="/admin/mapa" replace />} />
-              <Route path="*" element={<HomePage />} />
+              <Route path="*" element={<NotFoundPage />} />
             </Routes>
           </Suspense>
         </main>
