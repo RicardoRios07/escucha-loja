@@ -1,5 +1,25 @@
 @import "tailwindcss";
 
+/* TextShimmer: desplaza el degradado del texto para simular carga. */
+@keyframes shimmer {
+  0% {
+    background-position: 200% 50%;
+  }
+  100% {
+    background-position: -200% 50%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 @theme {
   --color-loja: #002693;
   --color-loja-deep: #001a61;

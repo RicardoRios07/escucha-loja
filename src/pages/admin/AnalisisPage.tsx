@@ -14,6 +14,7 @@ import {
   Wrench,
 } from 'lucide-react'
 import { PanelCard, PanelPage } from '../../components/escucha/PanelPage'
+import { TextShimmer } from '../../components/escucha/TextShimmer'
 import { generateAnalysis, type AnalysisReport, type LecturaUnificada } from '../../lib/escucha/analisis'
 import {
   getClusters,
@@ -23,7 +24,6 @@ import { useReportesAdmin } from '../../lib/escucha/repo'
 import { LLMProvider } from '../../lib/escucha/llmProvider'
 import {
   cargaSnapshotIA,
-  debeActualizarIA,
   fingerprintDenuncias,
   guardaSnapshotIA,
   IA_SCHEMA_VERSION,
@@ -46,11 +46,61 @@ function computeContexto(denuncias: MvpDenuncia[]): Contexto {
   }
 }
 
+/**
+ * Estado de carga del análisis con IA: tarjeta azul (la del banner) con el
+ * título y los párrafos en brillo. Reproduce la forma del texto real para que
+ * el salto al contenido definitivo no mueva el layout.
+ */
+function BloqueCargaIA({
+  titulo,
+  lineas = 4,
+  estado = 'Analizando los reportes con IA…',
+}: {
+  titulo: string
+  lineas?: number
+  estado?: string
+}) {
+  const anchos = ['92%', '78%', '86%', '54%', '70%']
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="rounded-[22px] border border-[#0635c4] bg-[#002693] p-4 text-white shadow-sm"
+    >
+      <div className="flex items-center gap-3">
+        <div className="grid h-9 w-9 place-items-center rounded-xl bg-white/10">
+          <Sparkles size={18} className="text-white/80" aria-hidden="true" />
+        </div>
+        <TextShimmer className="text-[18px] font-black">{titulo}</TextShimmer>
+      </div>
+      <div className="mt-4 space-y-3" aria-hidden="true">
+        {Array.from({ length: lineas }).map((_, i) => (
+          <TextShimmer
+            key={i}
+            as="div"
+            clip={false}
+            duration={4}
+            spread={26}
+            className="h-3 rounded-full"
+            style={{ width: anchos[i % anchos.length] }}
+          />
+        ))}
+      </div>
+      <p className="mt-5 inline-flex items-center gap-2 text-[12px] font-bold text-white/70">
+        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/30 border-t-white" aria-hidden="true" />
+        {estado}
+      </p>
+    </div>
+  )
+}
+
 export default function AnalisisPage() {
   const [verSectores, setVerSectores] = useState(false)
   const { datos: denuncias, cargando, error } = useReportesAdmin()
   const [ctx, setCtx] = useState<Contexto>(() => computeContexto([]))
   const [snapshotIA, setSnapshotIA] = useState<IASnapshot | null>(null)
+  /** Brillo de las tarjetas de IA: activo solo mientras la IA regenera la lectura. */
+  const [generandoIA, setGenerandoIA] = useState(false)
   const llmRef = useRef<LLMProvider | null>(null)
 
   const getLlm = () => {
@@ -92,18 +142,30 @@ export default function AnalisisPage() {
     }
   }, [ctx.denuncias, ctx.fp])
 
+  /**
+   * Regenera la lectura en cada entrada y cada vez que cambian los datos.
+   * Se guarda el fingerprint ya procesado: sin eso, guardar el snapshot
+   * cambiaría la dependencia y la IA se volvería a pedir en bucle.
+   */
+  const fpProcesadoRef = useRef<string | null>(null)
+
   useEffect(() => {
+    if (ctx.denuncias.length === 0) return
+    if (fpProcesadoRef.current === ctx.fp) return
+    fpProcesadoRef.current = ctx.fp
     let alive = true
+    setGenerandoIA(true)
     void (async () => {
-      const snap = snapshotIA ?? (await cargaSnapshotIA())
-      if (!alive) return
-      if (!debeActualizarIA(ctx.fp, snap)) return
-      await ejecutaIA()
+      try {
+        await ejecutaIA()
+      } finally {
+        if (alive) setGenerandoIA(false)
+      }
     })()
     return () => {
       alive = false
     }
-  }, [ctx.fp, ctx.reporte.total, snapshotIA, ejecutaIA])
+  }, [ctx.fp, ctx.denuncias.length, ejecutaIA])
 
   const reporte = ctx.reporte
   const lectura: LecturaUnificada = snapshotIA?.resultado ?? reporte.lectura
@@ -200,26 +262,42 @@ export default function AnalisisPage() {
     Baja: '#cbd5e1',
   }
 
+  const CABECERA = {
+    eyebrow: 'Panel · ciudad',
+    title: 'Análisis',
+    subtitle:
+      'Conoce el panorama general de los reportes ciudadanos y detecta los principales tendencias para tomar mejores decisiones.',
+  }
+
+  /**
+   * Fase 1: los reportes aún no llegaron. Se muestra el panel entero en
+   * carga —si no, las gráficas y tarjetas saldrían vacías junto al brillo de
+   * la IA— y todo el contenido aparece de una vez cuando llegan los datos.
+   */
+  if (cargando) {
+    return (
+      <PanelPage {...CABECERA}>
+        <div className="mt-4 max-w-[520px]">
+          <BloqueCargaIA titulo="Cargando reportes" lineas={4} estado="Consultando los reportes ciudadanos…" />
+        </div>
+      </PanelPage>
+    )
+  }
+
   return (
-    <PanelPage
-      eyebrow="Panel · ciudad"
-      title="Análisis"
-      subtitle="Conoce el panorama general de los reportes ciudadanos y detecta los principales tendencias para tomar mejores decisiones."
-    >
+    <PanelPage {...CABECERA}>
       {error ? (
         <p role="alert" className="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-semibold text-red-700">
           {error}
-        </p>
-      ) : null}
-      {cargando && ctx.denuncias.length === 0 ? (
-        <p role="status" className="mb-4 rounded-2xl border border-[#e2e9f6] bg-white p-4 text-sm font-semibold text-[#5d6f92]">
-          Cargando análisis…
         </p>
       ) : null}
       <p className="num mt-1 text-[13px] font-bold text-[#5d6f92]" aria-label="Contexto del análisis">
         {reporte.total} {reporte.total === 1 ? 'reporte' : 'reportes'} · {criticalCount} {criticalCount === 1 ? 'crítico' : 'críticos'} · últimos 30 días
       </p>
       <section className="mt-5 grid gap-4 xl:grid-cols-[1.1fr_1.5fr_1.1fr]">
+          {generandoIA ? (
+            <BloqueCargaIA titulo="¿Qué está pasando?" lineas={4} />
+          ) : (
           <div className="rounded-[22px] border border-[#e2e9f6] bg-[#f2f8ff] p-4 shadow-sm">
             <div className="flex items-center gap-3 text-[#002693]">
               <div className="grid h-9 w-9 place-items-center rounded-xl bg-white">
@@ -250,6 +328,7 @@ export default function AnalisisPage() {
               </p>
             </div>
           </div>
+          )}
 
           <PanelCard
             icon={TrendingUp}
@@ -415,6 +494,9 @@ export default function AnalisisPage() {
             </div>
           </PanelCard>
 
+          {generandoIA ? (
+            <BloqueCargaIA titulo="Tendencias y patrones" lineas={3} />
+          ) : (
           <PanelCard className="min-w-0" icon={Sparkles} title="Tendencias y patrones">
             <div className="mt-4 space-y-4 text-[13px] leading-relaxed text-[#3d4d6e]">
               {lectura.tendenciasYPatrones.slice(0, 3).map((trend, index) => (
@@ -447,6 +529,7 @@ export default function AnalisisPage() {
               )}
             </div>
           </PanelCard>
+          )}
         </section>
 
         <section className="mt-5">
