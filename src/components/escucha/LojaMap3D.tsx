@@ -74,6 +74,8 @@ type PinProps = {
   reportId: string
   count: number
   intensity: number
+  /** 0..1 contra el umbral de rojo calibrado por la media geométrica de la ciudad. */
+  severity: number
   categoria: string
   spriteId: string
   spriteKey: string
@@ -179,11 +181,67 @@ function fmtFecha(iso: string): string {
   return `${fecha.getDate()} ${MESES_CORTOS[fecha.getMonth()]} ${fecha.getFullYear()} · ${hh}:${mm}`
 }
 
+/**
+ * Umbrales de calor calibrados por la media geométrica de reportes por celda.
+ *
+ * Normalizar contra el máximo del momento (count/maxCount) hace que el mapa se
+ * auto-inflame: con 7 reportes el sector más lleno es "el máximo" y sale rojo.
+ * Con la media geométrica el color significa algo absoluto y estable: el rojo es
+ * "este sector supera el umbral de la ciudad", y el umbral sube solo con el
+ * volumen real. Es robusta a valores extremos (un sector con 50 casos no la
+ * distorsiona, a diferencia del promedio aritmético).
+ */
+export interface CalibracionCalor {
+  mediaGeo: number
+  umbralNaranja: number
+  umbralRojo: number
+}
+
+export function calibrarCalor(counts: number[]): CalibracionCalor {
+  const positivos = counts.filter((c) => c > 0)
+  if (positivos.length === 0) return { mediaGeo: 1, umbralNaranja: 2, umbralRojo: 4 }
+  const mediaGeo = Math.exp(positivos.reduce((s, c) => s + Math.log(c), 0) / positivos.length)
+  const limitar = (v: number, min: number, max: number) => Math.min(max, Math.max(min, v))
+  return {
+    mediaGeo,
+    umbralNaranja: limitar(mediaGeo * 1.8, 2, 12),
+    umbralRojo: limitar(mediaGeo * 3.2, 4, 25),
+  }
+}
+
+/**
+ * Rampa de calor con los umbrales calibrados: el naranja entra en
+ * `umbralNaranja/umbralRojo` de densidad y el rojo en 1.0 (un sector que
+ * alcanza el umbral de rojo de la ciudad). Con pocos reportes la escala
+ * queda baja y el mapa se ve fresco; el rojo aparece solo cuando hay
+ * concentración real.
+ */
+function rampaCalor(cal: CalibracionCalor): maplibregl.ExpressionSpecification {
+  const n = Math.max(0.05, Math.min(0.9, cal.umbralNaranja / cal.umbralRojo))
+  return [
+    'interpolate',
+    ['linear'],
+    ['heatmap-density'],
+    0,
+    'rgba(13,185,84,0)',
+    0.06,
+    'rgba(13,185,84,0.6)',
+    n * 0.5,
+    'rgba(250,204,21,0.7)',
+    n,
+    'rgba(249,115,22,0.85)',
+    0.85,
+    'rgba(234,88,12,0.9)',
+    1,
+    'rgba(220,38,38,0.95)',
+  ] as unknown as maplibregl.ExpressionSpecification
+}
+
 /** Agrupa reportes por celda (4 decimales) + categoría, respeta filtros y normaliza intensidad 0..1. */
 function buildPins(
   reports: LojaReport[],
   excluded: Set<string>,
-): { features: ReportFeature[]; mediaById: Map<string, MediaItem> } {
+): { features: ReportFeature[]; mediaById: Map<string, MediaItem>; calibracion: CalibracionCalor } {
   const grouped = new Map<string, ReportFeature>()
   const mediaById = new Map<string, MediaItem>()
   reports.forEach((report) => {
@@ -209,6 +267,7 @@ function buildPins(
         reportId: report.id ?? '',
         count,
         intensity: 0,
+        severity: 0,
         categoria,
         spriteId: `pin-${vis.key}`,
         spriteKey: vis.key,
@@ -230,10 +289,13 @@ function buildPins(
   })
   const features = [...grouped.values()]
   const maxCount = Math.max(1, ...features.map((feature) => feature.properties.count))
+  const calibracion = calibrarCalor(features.map((feature) => feature.properties.count))
   features.forEach((feature) => {
     feature.properties.intensity = feature.properties.count / maxCount
+    // severity = peso del calor contra el umbral de rojo de la ciudad.
+    feature.properties.severity = Math.min(1, feature.properties.count / calibracion.umbralRojo)
   })
-  return { features, mediaById }
+  return { features, mediaById, calibracion }
 }
 
 /** Input del source de clusters: una feature por celda (sin separar por categoría). */
@@ -297,6 +359,8 @@ export default function LojaMap3D({
   // Carga diferida: el mapa (módulo + datos) solo inicializa cerca del viewport.
   const [inView, setInView] = useState(false)
   const [mapLoaded, setMapLoaded] = useState(false)
+  // Un solo estado de carga: "Cargando mapa…" hasta que los pines se dibujan.
+  const [faseCarga, setFaseCarga] = useState<'mapa' | 'listo'>('mapa')
 
   // Modo del mapa: siempre 3D (terreno + edificios + volúmenes ML).
   const dimRef = useRef<'2d' | '3d'>('3d')
@@ -322,6 +386,8 @@ export default function LojaMap3D({
 
   const pinFeaturesRef = useRef(pins.features)
   pinFeaturesRef.current = pins.features
+  const calibracionRef = useRef<CalibracionCalor>(pins.calibracion)
+  calibracionRef.current = pins.calibracion
   const clusterFeaturesRef = useRef(clusterFeatures)
   clusterFeaturesRef.current = clusterFeatures
   const mediaByIdRef = useRef(pins.mediaById)
@@ -463,7 +529,7 @@ export default function LojaMap3D({
    */
   const asegurarCapaReportes = useCallback(() => {
     const map = mapRef.current
-    if (!map || !map.isStyleLoaded()) return
+    if (!map || !map.getStyle()) return
     try {
       const pinsSource = map.getSource('reports') as maplibregl.GeoJSONSource | undefined
       if (!pinsSource) {
@@ -489,25 +555,14 @@ export default function LojaMap3D({
             source: 'reports',
             maxzoom: 17,
             paint: {
-              'heatmap-weight': ['get', 'intensity'],
-              'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 10, 2.2, 16, 5],
-              'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 10, 18, 16, 48],
+              // Peso = severity (0..1 contra el umbral de rojo calibrado): el
+              // color es absoluto, no relativo al máximo del momento.
+              'heatmap-weight': ['get', 'severity'],
+              'heatmap-intensity': ['interpolate', ['linear'], ['zoom'], 10, 1.6, 16, 2.6],
+              // Radio en píxeles: crece al ACERCARSE, nunca al alejar.
+              'heatmap-radius': ['interpolate', ['linear'], ['zoom'], 10, 22, 12, 32, 14, 46, 16, 60],
               'heatmap-opacity': 0.75,
-              'heatmap-color': [
-                'interpolate',
-                ['linear'],
-                ['heatmap-density'],
-                0,
-                'rgba(13,185,84,0)',
-                0.2,
-                'rgba(13,185,84,0.8)',
-                0.45,
-                'rgba(0,38,147,0.9)',
-                0.7,
-                'rgba(254,100,15,0.95)',
-                1,
-                'rgba(254,65,2,0.95)',
-              ],
+              'heatmap-color': rampaCalor(calibracionRef.current),
             },
           },
           encimaDe,
@@ -524,9 +579,19 @@ export default function LojaMap3D({
             minzoom: 11,
             layout: {
               'icon-image': ['get', 'spriteId'],
-              'icon-size': ['interpolate', ['linear'], ['zoom'], 13, 0.85, 17, 1.1],
+              // Tamaño constante: el offset en px solo es exacto si el icono no
+              // escala con el zoom (si escala, la punta se despega del punto).
+              'icon-size': 0.9,
+              // El sprite se ancla por su centro; la punta está 28 px lógicos
+              // (25 px a escala 0.9) por debajo → se sube para que la punta
+              // caiga justo sobre la coordenada reportada.
+              'icon-offset': [0, -25],
               'icon-allow-overlap': true,
               'icon-ignore-placement': true,
+              // Que el pin no gire ni se incline con el mapa: la punta se queda
+              // clavada al punto al rotar 360°.
+              'icon-rotation-alignment': 'viewport',
+              'icon-pitch-alignment': 'viewport',
             },
           })
         } else {
@@ -630,10 +695,54 @@ export default function LojaMap3D({
           })
         }
       }
+      if (pinFeaturesRef.current.length > 0) setFaseCarga('listo')
     } catch {
       /* Reintenta en la próxima actualización de datos. */
     }
   }, [lite])
+
+  // Fin de la carga: cuando los pines están realmente pintados en pantalla.
+  // Si no hay nada que pintar (0 reportes o filtrado), termina igual.
+  useEffect(() => {
+    const map = mapRef.current
+    if (!map) return
+    const hayPinesVisibles = () => {
+      for (const id of ['reports-pins', 'reports-pins-fallback']) {
+        try {
+          if (map.getLayer(id) && map.queryRenderedFeatures({ layers: [id] }).length > 0) return true
+        } catch {
+          /* capa aún no creada */
+        }
+      }
+      // Capa lista pero sin features en pantalla: no hay nada que esperar.
+      try {
+        const src = map.getSource('reports')
+        if (src && map.getLayer('reports-heat') && map.querySourceFeatures('reports').length === 0) return true
+      } catch {
+        /* source aún no creado */
+      }
+      return false
+    }
+    if (hayPinesVisibles()) {
+      setFaseCarga('listo')
+      return
+    }
+    let intentos = 0
+    const id = window.setInterval(() => {
+      intentos += 1
+      // Tope de 20 s: el aviso nunca se queda colgado.
+      if (hayPinesVisibles() || intentos > 100) {
+        window.clearInterval(id)
+        setFaseCarga('listo')
+      }
+    }, 200)
+    return () => window.clearInterval(id)
+  }, [mapLoaded])
+
+  // Gancho solo-dev para QA: forzar reconstrucción de la capa de reportes.
+  if (import.meta.env.DEV) {
+    (window as unknown as { __asegurarReportes?: () => void }).__asegurarReportes = asegurarCapaReportes
+  }
 
   // Carga diferida: el módulo de maplibre (~1MB) y el mapa solo inicializan
   // cuando la sección está cerca del viewport.
@@ -663,14 +772,17 @@ export default function LojaMap3D({
     if (!container) return
     let cancelled = false
     let mapInstance: maplibregl.Map | null = null
+    // Salida de seguridad: el aviso de carga nunca queda colgado.
+    const avisoSeguro = window.setTimeout(() => setFaseCarga('listo'), 25000)
 
     void (async () => {
       // Import diferido: saca maplibre del camino crítico de la página.
       const maplibregl = await import('maplibre-gl')
       if (cancelled || !container.isConnected) return
-      // El worker inline falla en este setup (Vite dev + Electron/CSP): worker vía CDN.
+      // Worker servido desde nuestro dominio (scripts/copiar-worker-maplibre.mjs
+      // lo copia en prebuild junto a su módulo compartido): sin CDN de terceros.
       if (!maplibregl.getWorkerUrl()) {
-        maplibregl.setWorkerUrl(`https://unpkg.com/maplibre-gl@${maplibregl.getVersion()}/dist/maplibre-gl-worker.mjs`)
+        maplibregl.setWorkerUrl('/maplibre-gl-worker.mjs')
       }
       maplibreMod = maplibregl
       ensurePmtilesProtocol(maplibregl)
@@ -744,6 +856,10 @@ export default function LojaMap3D({
         /* opcional */
       }
 
+      // El detalle 3D (vector tiles, edificios y territorio) se carga DESPUÉS de
+      // los pines: son ~1,5 MB que no deben competir con el satelital ni retrasar
+      // el primer pintado útil. El aspecto final es idéntico.
+      const cargarDetalle3D = () => {
       // Vector tiles (para edificios 3D y etiquetas) sobre la base satelital.
       try {
         map.addSource('openmaptiles', { type: 'vector', url: 'https://tiles.openfreemap.org/planet' })
@@ -955,6 +1071,7 @@ export default function LojaMap3D({
       } catch {
         /* Estilo sin capa de edificios: el mapa sigue funcionando. */
       }
+      }
 
       // Sprites de pins (teardrop + icono por categoría). Si fallan, círculos.
       // Protegido: un fallo aquí ya no aborta la capa de reportes.
@@ -976,12 +1093,51 @@ export default function LojaMap3D({
       // listos tras la carga; moveend = tras cada paneo/zoom).
       map.on('moveend', () => sampleViewportRoofs())
       map.on('idle', () => sampleViewportRoofs())
+
+      // Detalle 3D diferido: entra cuando el mapa ya está pintado (idle) y el
+      // navegador está libre. Así el aviso nunca se contradice con el velo.
+      let detalleLanzado = false
+      const lanzarDetalle = () => {
+        if (cancelled || detalleLanzado) return
+        detalleLanzado = true
+        // Sin aviso: el relieve y los edificios entran por detrás una vez que
+        // los pines ya están en pantalla.
+        cargarDetalle3D()
+        // Restituye el orden de pintado: al diferir el 3D, las volumetrías
+        // quedaron por encima del heat y los pines. moveLayer sin destino los
+        // lleva arriba; primero el heat y luego los pines para mantener el orden.
+        try {
+          if (map.getLayer('reports-heat')) map.moveLayer('reports-heat')
+          const capaPines = map.getLayer('reports-pins')
+            ? 'reports-pins'
+            : map.getLayer('reports-pins-fallback')
+              ? 'reports-pins-fallback'
+              : null
+          if (capaPines) map.moveLayer(capaPines)
+        } catch {
+          /* si no están, el efecto de datos las reconstruye arriba */
+        }
+      }
+      const lanzarSiLibre = () => {
+        if (typeof window.requestIdleCallback === 'function') {
+          window.requestIdleCallback(lanzarDetalle, { timeout: 1500 })
+        } else {
+          window.setTimeout(lanzarDetalle, 250)
+        }
+      }
+      if (map.loaded() && map.areTilesLoaded()) lanzarSiLibre()
+      else {
+        map.once('idle', lanzarSiLibre)
+        // Red muy lenta sin idle: no dejamos el 3D sin cargar.
+        window.setTimeout(lanzarSiLibre, 8000)
+      }
     })
 
     })()
 
     return () => {
       cancelled = true
+      window.clearTimeout(avisoSeguro)
       locationMarkerRef.current = null
       cardPopupRef.current = null
       mapRef.current = null
@@ -991,13 +1147,48 @@ export default function LojaMap3D({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [inView])
 
-  // Crea la capa si falta (auto-repara un `load` abortado) y actualiza datos.
+  // Crea la capa si falta y actualiza datos. No confiar en isStyleLoaded():
+  // en este estilo satelital devuelve false mucho después de que el estilo esté
+  // usable, y con eso los pines se perdían para siempre. Se reintenta con
+  // backoff corto hasta que el source exista (tope de 15 s).
+  // mapLoaded en deps: cubre el caso "los datos llegaron antes que el mapa".
   useEffect(() => {
     const map = mapRef.current
     if (!map) return
-    if (map.isStyleLoaded()) asegurarCapaReportes()
-    else map.once('load', asegurarCapaReportes)
-  }, [pins.features, clusterFeatures, asegurarCapaReportes])
+    const listo = () => {
+      try {
+        return !!mapRef.current?.getSource('reports')
+      } catch {
+        return false
+      }
+    }
+    asegurarCapaReportes()
+    // Recalibra la rampa del calor: los umbrales dependen de los datos, así que
+    // al cambiar el volumen (nuevos reportes, filtros) el color se reescala.
+    try {
+      if (map.getLayer('reports-heat')) {
+        map.setPaintProperty('reports-heat', 'heatmap-color', rampaCalor(calibracionRef.current))
+      }
+    } catch {
+      /* la capa aún no existe: se creará con la rampa ya calibrada */
+    }
+    if (listo() && pinFeaturesRef.current.length > 0) setFaseCarga('listo')
+    let vivo = true
+    const id = window.setInterval(() => {
+      if (!vivo || listo()) {
+        window.clearInterval(id)
+        return
+      }
+      asegurarCapaReportes()
+      if (listo() && pinFeaturesRef.current.length > 0) setFaseCarga('listo')
+    }, 300)
+    const tope = window.setTimeout(() => window.clearInterval(id), 15_000)
+    return () => {
+      vivo = false
+      window.clearInterval(id)
+      window.clearTimeout(tope)
+    }
+  }, [pins.features, pins.calibracion, clusterFeatures, asegurarCapaReportes, mapLoaded])
 
   const handleUseLocation = () => {
     const map = mapRef.current
@@ -1049,19 +1240,34 @@ export default function LojaMap3D({
       className={`loja-map-page${embedded ? ' loja-map-embedded' : ''}${className ? ` ${className}` : ''}`}
     >
       <div ref={containerRef} className="loja-map-canvas" />
-      {(!inView || !mapLoaded) && (
-        <div className="loja-map-loading-veil" aria-hidden="true">
+      {(!inView || faseCarga !== 'listo') && (
+        <div className="loja-map-loading-veil" role="status">
           <span>Cargando mapa…</span>
         </div>
       )}
       <div className="loja-map-hud">
         <div className="loja-map-top-row">
-          {!lite && <div className="loja-map-status-pill">{totalAportes} reportes registrados</div>}
-          <div className="loja-map-toggles">
-            <button className="loja-map-toggle" type="button" disabled={busy === 'location'} onClick={handleUseLocation}>
-              Usar ubicación actual
-            </button>
-          </div>
+          {!lite && faseCarga === 'listo' && (
+            <div className="loja-map-status-pill">{totalAportes} reportes registrados</div>
+          )}
+          {faseCarga !== 'listo' && (
+            <div className="loja-map-status-pill loja-map-pill-loading inline-flex items-center gap-2 animate-pulse" role="status">
+              <span
+                aria-hidden="true"
+                className="inline-block h-3.5 w-3.5 shrink-0 animate-spin rounded-full border-2 border-[#002693]/25 border-t-[#002693]"
+              />
+              Cargando mapa…
+            </div>
+          )}
+          {/* El botón de ubicación solo tiene sentido con el mapa interactivo:
+              durante la carga estorba y en móvil se solapa con la pill. */}
+          {faseCarga === 'listo' && (
+            <div className="loja-map-toggles">
+              <button className="loja-map-toggle" type="button" disabled={busy === 'location'} onClick={handleUseLocation}>
+                Usar ubicación actual
+              </button>
+            </div>
+          )}
         </div>
 
         {lite ? (

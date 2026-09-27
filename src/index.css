@@ -498,6 +498,9 @@
 
 .loja-map-status-pill { align-self: flex-start; padding: 6px 12px; border: 1px solid var(--map-line); border-radius: 999px; background: rgba(255, 255, 255, 0.95); color: #002693; font-size: 12px; font-weight: 800; box-shadow: 0 2px 8px rgba(0, 38, 147, 0.18); }
 .loja-map-embedded .loja-map-status-pill { display: none; }
+/* La pill de carga sí se muestra en embebido: el estado de carga no lo
+   aporta la página padre y sin ella el mapa parece congelado. */
+.loja-map-embedded .loja-map-status-pill.loja-map-pill-loading { display: inline-flex; }
 
 /* Foco parroquial: siempre visible (también en embedded) para poder quitarlo. */
 .loja-map-focus-pill { align-self: flex-start; padding: 6px 12px; border: 2px solid #002693; border-radius: 999px; background: #002693; color: #ffffff; font-size: 12px; font-weight: 800; box-shadow: 0 2px 8px rgba(0, 38, 147, 0.35); cursor: pointer; }

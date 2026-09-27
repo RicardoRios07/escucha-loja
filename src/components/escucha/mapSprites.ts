@@ -27,8 +27,15 @@ export interface PinSpriteSpec {
 function loadImage(svg: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image()
-    img.onload = () => resolve(img)
-    img.onerror = () => reject(new Error('SVG de icono no cargó'))
+    const temporizador = window.setTimeout(() => reject(new Error('SVG de icono expiró')), 5000)
+    img.onload = () => {
+      window.clearTimeout(temporizador)
+      resolve(img)
+    }
+    img.onerror = () => {
+      window.clearTimeout(temporizador)
+      reject(new Error('SVG de icono no cargó'))
+    }
     img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`
   })
 }
@@ -74,6 +81,15 @@ function rasterizePin(color: string): HTMLCanvasElement {
   fillPin(ctx, 23, 21, 19, 57, 33, 12.8, '#ffffff')
   ctx.restore()
 
+  // Sombra de contacto en la punta: el pin se lee clavado al terreno y no
+  // "flotando" cuando la cámara rota en 3D.
+  ctx.save()
+  ctx.shadowColor = 'rgba(0,0,0,0.45)'
+  ctx.shadowBlur = 4
+  ctx.shadowOffsetY = 1.5
+  fillPin(ctx, 23, 21, 19, 57, 33, 12.8, 'rgba(0,0,0,0.001)')
+  ctx.restore()
+
   // Cuerpo con el color de categoría.
   fillPin(ctx, 23, 21, 17, 55, 32.5, 11, color)
 
@@ -92,7 +108,7 @@ export async function addCategoryPinSprites(
       if (!ctx) throw new Error('Canvas 2D no disponible')
       const iconBox = 18
       const img = await loadImage(
-        `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">${ICON_MARKUP[spec.icono]}</svg>`,
+        `<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">${ICON_MARKUP[spec.icono]}</svg>`,
       )
       ctx.drawImage(img, 23 - iconBox / 2, 21 - iconBox / 2, iconBox, iconBox)
       // MapLibre no acepta HTMLCanvasElement en addImage: registramos los píxeles

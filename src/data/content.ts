@@ -5,7 +5,7 @@ export const IMG = {
   heroBackground: '/fondo-top.webp',
   candidateTop: '/candidato-top.webp',
   cityTop: '/ciudad-top.webp',
-  map: '/mapa.jpeg',
+  map: '/mapa-placeholder.webp',
 } as const
 
 export type CategoryKey = 'agua' | 'saneamiento' | 'movilidad' | 'servicios'

@@ -9,8 +9,8 @@ interface Props {
 export default function Logo({ height = 32, tile = false, className = '' }: Props) {
   const img = (
     <img
-      src="/logo.png"
-      alt="Jesús Resuelve"
+      src="/logo.webp"
+      alt="Jesús Escucha"
       height={height}
       style={{ height }}
       className={`w-auto ${className}`}
