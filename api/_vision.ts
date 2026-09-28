@@ -19,67 +19,34 @@ const VISION_TIMEOUT_MS = 15000
 const FETCH_TIMEOUT_MS = 10_000
 const MAX_BYTES_VISION = 15 * 1024 * 1024
 
-// ---------- Capa 1: firmas de metadatos (guía §2, §7) ----------
+// ---------- Capa 1: firmas de metadatos ----------
 const FIRMAS_IA = [
-  // Modelos / proveedores principales
-  'chatgpt', 'gpt-4', 'gpt-3.5', 'gpt4', 'gpt3', 'openai',
-  'dall-e', 'dalle', 'dall·e',
-  'midjourney', 'mj',
-  'stable diffusion', 'stablediffusion', 'sd',
-  'gemini', 'bard',
-  'claude', 'anthropic',
-  'perplexity',
-  // Herramientas / plataformas populares
-  'c2pa', 'comfyui', 'automatic1111', 'invokeai', 'webui',
-  'leonardo', 'leonardo.ai', 'leonardoai',
-  'runway', 'runwayml', 'gen-2', 'gen2',
-  'pika', 'pika.art', 'pikaart',
-  'sora',
-  'firefly', 'adobe firefly',
-  'canva', 'magic studio',
-  'bing image creator', 'bing create', 'designer.microsoft',
-  'civitai', 'civitai.com',
-  'huggingface', 'hf.co',
-  'replicate', 'replicate.com',
-  'fal.ai', 'fal',
-  'ideogram', 'ideogram.ai',
-  'playground', 'playgroundai',
-  'nightcafe', 'nightcafe.studio',
-  'starryai', 'starry ai',
-  'wombo', 'dream by wombo',
-  'lensa', 'prisma labs',
-  'artbreeder',
-  'deepai', 'deepai.org',
-  'craiyon', 'dall-e mini',
-  'hotpot', 'hotpot.ai',
-  'fotor', 'fotor.com',
-  'cutout.pro', 'cutout pro',
-  'photoroom', 'photoroom.com',
-  'remove.bg', 'removebg',
-  'upscale.media', 'upscale media',
-  'bigjpg', 'waifu2x',
-  'gigapixel', 'topaz labs',
-  'magnific', 'magnific.ai',
-  'krea', 'krea.ai',
-  'everart', 'everart.ai',
-  'getimg', 'getimg.ai',
-  'mage', 'mage.space',
-  'neural.love', 'neural love',
-  'artflow', 'artflow.ai',
-  'dreamstudio', 'dreamstudio.ai',
-  'stability', 'stability.ai', 'stabilityai',
-  'openjourney',
-  'anything v', 'anything-v',
-  'realistic vision', 'realisticvision',
-  'deliberate', 'rev animated', 'chilloutmix',
-  'epicrealism', 'juggernaut',
-  'controlnet', 'controlnet',
-  'lora', 'lycoris', 'embedding',
-  'vae', 'clip skip',
-  'euler', 'ddim', 'dpm++', 'unipc',
-  'cfg scale', 'steps', 'sampler',
-  'seed:', 'model:', 'prompt:', 'negative prompt:',
-  'civitai.com', 'huggingface.co', 'github.com/comfyanonymous',
+  // Solo identificadores largos y distintivos de generadores IA.
+  // Política anti-falsos-positivos (incidente prod 2026-09-28: 'mage' ⊂
+  // 'image' y 'fal' ⊂ 'false'/'flash' bloqueaban el ~100% de fotos reales
+  // de celular con EXIF): prohibidas firmas de ≤4 caracteres y palabras
+  // que sean subcadenas de inglés común o de tags EXIF/XMP
+  // (ImageWidth, Flash, False, Model...). Editores/retocadores (Canva,
+  // Photoshop, Topaz, upscalers) NO bloquean: editar ≠ generar.
+  'chatgpt', 'openai',
+  'dall-e', 'dalle',
+  'midjourney',
+  'stable diffusion', 'stablediffusion',
+  'comfyui', 'automatic1111', 'invokeai',
+  'gemini', 'claude', 'anthropic', 'perplexity',
+  'leonardo.ai', 'runwayml', 'nightcafe.studio',
+  'starryai', 'artbreeder', 'deepai.org', 'craiyon',
+  'civitai.com', 'huggingface.co', 'replicate.com', 'fal.ai',
+  'ideogram.ai', 'photoroom.com',
+  'neural.love', 'dreamstudio', 'stability.ai',
+  'openjourney', 'realisticvision',
+  'chilloutmix', 'epicrealism', 'juggernaut',
+  'controlnet', 'lycoris',
+  'ddim', 'dpm++',
+  'negative prompt', 'cfg scale',
+  'bing image creator', 'adobe firefly',
+  'sora.openai.com', 'pika.art', 'designer.microsoft',
+  'github.com/comfyanonymous',
 ]
 
 /** Busca marcas de metadatos IA en los primeros 2000 bytes. */
@@ -107,14 +74,30 @@ const DOMINIOS_IA = [
 ]
 
 const CATEGORIAS_PROHIBIDAS = [
-  'clip art', 'illustration', 'animated cartoon', 'artwork', 'drawing',
-  'graphics', 'digital art', 'artificial intelligence', 'cgi', 'cg artwork',
-  'generated image', 'deepfake', 'synthetic photo', '3d render',
-  'graphic design', 'poster', 'fictional character', 'vector', 'novelty',
-  'animation', 'font', 'logo',
+  // Solo etiquetas explícitas de contenido sintético (incidente prod
+  // 2026-09-28: 'font', 'logo', 'poster', 'graphics', 'illustration' y
+  // 'artwork' a 0.45 marcaban fotos reales de calles con letreros o murales;
+  // una foto DE un mural no es una imagen generada por IA).
+  'artificial intelligence',
+  'generated image', 'deepfake', 'synthetic photo',
+  'clip art', 'animated cartoon',
+  'cgi', 'cg artwork', '3d render',
+  'fictional character', 'digital art',
 ]
 
+/** Umbral de etiquetas IA: alto para no marcar fotos reales con letreros. */
+const UMBRAL_LABEL_IA = 0.75
+
 const MENSAJE_RECHAZO = 'Imagen/Video rechazado: no cumple las normas de contenido. Por favor, intenta con otra.'
+
+/** Nombre de archivo desde la URL del blob (solo para logs, sin PII). */
+function nombreArchivo(url: string): string {
+  try {
+    return new URL(url).pathname.split('/').pop() ?? '?'
+  } catch {
+    return '?'
+  }
+}
 
 interface SafeSearchResp {
   adult?: string
@@ -195,6 +178,7 @@ export async function validarFotosIA(fotos: { url: string; origen?: 'foto' | 'vi
     if (!buf) continue
     const firma = detectarFirmaMetadatosIA(buf)
     if (firma) {
+      console.warn(`[vision] rechazo capa1 firma="${firma}" archivo="${nombreArchivo(foto.url)}" origen="${foto.origen ?? 'foto'}"`)
       throw new Error(MENSAJE_RECHAZO)
     }
   }
@@ -223,36 +207,45 @@ export async function validarFotosIA(fotos: { url: string; origen?: 'foto' | 'vi
         ['LIKELY', 'VERY_LIKELY'].includes(lvl(s.violence)) ||
         lvl(s.racy) === 'VERY_LIKELY'
       if (esPornoOGore) {
+        console.warn(`[vision] rechazo gore/nsfw archivo="${nombreArchivo(completas[i]?.url ?? '')}" adult="${lvl(s.adult)}" violence="${lvl(s.violence)}" racy="${lvl(s.racy)}"`)
         throw new Error(MENSAJE_RECHAZO)
       }
       if (
         completas[i]?.origen === 'video' &&
         ['LIKELY', 'VERY_LIKELY'].includes(lvl(s.medical))
       ) {
+        console.warn(`[vision] rechazo medical(video) archivo="${nombreArchivo(completas[i]?.url ?? '')}" medical="${lvl(s.medical)}"`)
         throw new Error(MENSAJE_RECHAZO)
       }
 
       // 2b) Spoof (ilustración / diseño / IA).
       if (['LIKELY', 'VERY_LIKELY'].includes(lvl(s.spoof))) {
+        console.warn(`[vision] rechazo spoof archivo="${nombreArchivo(completas[i]?.url ?? '')}" spoof="${lvl(s.spoof)}"`)
         throw new Error(MENSAJE_RECHAZO)
       }
 
       // 2c) Páginas web con imágenes coincidentes en dominios de generadores IA.
       const paginas = r.webDetection?.pagesWithMatchingImages ?? []
-      const enSitiosIA = paginas.some((p) =>
+      const paginaIA = paginas.find((p) =>
         DOMINIOS_IA.some((d) => p.url?.toLowerCase().includes(d)),
       )
-      if (enSitiosIA) throw new Error(MENSAJE_RECHAZO)
+      if (paginaIA) {
+        console.warn(`[vision] rechazo web-ia archivo="${nombreArchivo(completas[i]?.url ?? '')}" pagina="${paginaIA.url}"`)
+        throw new Error(MENSAJE_RECHAZO)
+      }
 
-      // 2d) Etiquetas de arte/IA con score > 0.45.
+      // 2d) Etiquetas explícitas de contenido sintético con score alto.
       const labels = r.labelAnnotations ?? []
-      const esArteOIA = labels.some(
+      const labelIA = labels.find(
         (label) =>
           label.description &&
           CATEGORIAS_PROHIBIDAS.some((cat) => label.description!.toLowerCase().includes(cat)) &&
-          (label.score ?? 0) > 0.45,
+          (label.score ?? 0) > UMBRAL_LABEL_IA,
       )
-      if (esArteOIA) throw new Error(MENSAJE_RECHAZO)
+      if (labelIA) {
+        console.warn(`[vision] rechazo label-ia archivo="${nombreArchivo(completas[i]?.url ?? '')}" label="${labelIA.description}" score="${labelIA.score}"`)
+        throw new Error(MENSAJE_RECHAZO)
+      }
     })
   } catch (err) {
     // Fail-open (guía §10): solo los rechazos duros bloquean. Los errores de
