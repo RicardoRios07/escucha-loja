@@ -1,5 +1,6 @@
 import { Suspense, lazy, useEffect } from 'react'
 import { Routes, Route, useLocation, Navigate } from 'react-router-dom'
+import { Analytics } from '@vercel/analytics/react'
 import Navbar from './components/Navbar'
 import HomePage from './pages/HomePage'
 import LoadingScreen from './components/escucha/LoadingScreen'
@@ -160,6 +161,7 @@ export default function App() {
             </Routes>
           </Suspense>
         </main>
+        <Analytics />
       </div>
     </AuthProvider>
   )
