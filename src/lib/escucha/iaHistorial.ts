@@ -2,7 +2,7 @@ import type { LecturaUnificada } from './analisis'
 import type { MvpDenuncia } from './types'
 
 /**
- * Cache de la lectura única de IA en Neon (un solo slot global 'snapshot')
+ * Cache de la lectura única de IA en Postgres (un solo slot global 'snapshot')
  * + fingerprint de los datos para decidir cuándo re-llamar (y no gastar).
  */
 

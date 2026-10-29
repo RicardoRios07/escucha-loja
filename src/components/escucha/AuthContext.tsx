@@ -13,7 +13,7 @@ export interface SessionUser {
 }
 
 interface AuthValue {
-  /** Usuario Google (sesión httpOnly verificada contra Neon). Null = sin login. */
+  /** Usuario Google (sesión httpOnly verificada contra Postgres). Null = sin login. */
   user: SessionUser | null
   cargando: boolean
   googleConfigured: boolean
@@ -80,7 +80,7 @@ export function useAuth(): AuthValue {
 }
 
 /**
- * Protege una ruta por rol (sesión Google contra Neon).
+ * Protege una ruta por rol (sesión Google contra Postgres).
  * Sin login redirige a /ingresar; sin onboarding, a /bienvenida.
  */
 export function RequireRol({ rol, children }: { rol: Rol | Rol[]; children: ReactNode }) {

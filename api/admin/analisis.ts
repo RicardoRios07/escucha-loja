@@ -1,5 +1,5 @@
 /**
- * /api/admin/analisis — caché del análisis IA en Neon (un slot global).
+ * /api/admin/analisis — caché del análisis IA en Postgres (un slot global).
  * GET: snapshot actual o 404. POST: guarda (upsert). Solo rol admin.
  */
 import { currentUser, db, rateOkDb, rowsOf, type ApiReq, type ApiRes } from '../_lib.js'

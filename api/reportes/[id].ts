@@ -1,6 +1,6 @@
 /** DELETE /api/reportes?id= — elimina un reporte propio (o cualquiera si admin). */
-import { del } from '@vercel/blob'
 import { currentUser, db, rateOkDb, rowsOf, type ApiReq, type ApiRes } from '../_lib.js'
+import { borrarEvidenciasLocales } from '../_media.js'
 
 export default async function handler(req: ApiReq, res: ApiRes) {
   try {
@@ -36,9 +36,9 @@ export default async function handler(req: ApiReq, res: ApiRes) {
       res.status(404).json({ error: 'Reporte no encontrado.' })
       return
     }
-    // Limpieza best-effort de los blobs (no bloquea la respuesta).
+    // Limpieza best-effort de los archivos locales (no bloquea la respuesta).
     if (evPrevias.length > 0) {
-      void del(evPrevias).catch(() => {})
+      void borrarEvidenciasLocales(evPrevias)
     }
     res.status(200).json({ ok: true })
   } catch (e) {

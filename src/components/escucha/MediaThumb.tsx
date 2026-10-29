@@ -9,7 +9,7 @@ interface Props {
   controles?: boolean
 }
 
-/** Miniatura de evidencia: dataURL, blob local o URL remota (Vercel Blob). */
+/** Miniatura de evidencia: dataURL, blob local o URL del storage local. */
 export default function MediaThumb({ item, alt, className, controles = false }: Props) {
   const url = useMediaUrl(item)
   const esVideo = isMediaRef(item)

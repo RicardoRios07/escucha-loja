@@ -1,8 +1,7 @@
--- schema.sql — Jesús Escucha (Neon Postgres + PostGIS)
--- Aplicar con: psql "$DATABASE_URL_UNPOOLED" -f db/schema.sql
+-- schema.sql — Jesús Escucha (PostgreSQL local)
+-- Aplicar con: node db/apply.mjs
 -- Idempotente: puede correrse más de una vez.
 
-create extension if not exists postgis;
 create extension if not exists pgcrypto;
 create extension if not exists citext;
 
@@ -43,7 +42,6 @@ create table if not exists reportes (
   descripcion text not null default '',
   lat double precision not null,
   lng double precision not null,
-  geom geography(Point, 4326),
   parroquia_id text,
   barrio_id text,
   gravedad text not null default 'Media'
@@ -63,13 +61,12 @@ create table if not exists reportes (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
-create index if not exists reportes_geom_idx on reportes using gist (geom);
 create index if not exists reportes_user_idx on reportes (user_id);
 create index if not exists reportes_categoria_idx on reportes (categoria_code);
 create index if not exists reportes_created_idx on reportes (created_at desc);
 create index if not exists reportes_parroquia_idx on reportes (parroquia_id);
 
--- Evidencia (las URLs apuntarán a Vercel Blob en la fase de storage).
+-- Evidencia (las URLs apuntan al storage local (uploads/)).
 create table if not exists evidencias (
   id uuid primary key default gen_random_uuid(),
   reporte_id uuid not null references reportes (id) on delete cascade,

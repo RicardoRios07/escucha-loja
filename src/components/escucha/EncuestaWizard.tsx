@@ -147,7 +147,7 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
   const [showAddress, setShowAddress] = useState(false)
   const modalRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLElement | null>(null)
-  /** URL de cada vídeo → fotogramas extraídos (0.5s, mitad, final−1s). Solo validación Vision; no se persisten. */
+  /** URL de cada vídeo → fotogramas extraídos (0.5s, mitad, final−1s). Solo validación local; no se persisten. */
   const framesRef = useRef<{ videoUrl: string; frames: string[] }[]>([])
   // Candado anti-doble-envío: el disabled del botón no basta si llegan dos clics antes del re-render.
   const enviandoRef = useRef(false)
@@ -254,7 +254,7 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
         calleSecundaria: formData.calleSecundaria,
         referencia: formData.referencia,
         evidencia: formData.media,
-        // Fotogramas extraídos del vídeo (validación Vision fail-open; el server los descarta).
+        // Fotogramas extraídos del vídeo (validación local fail-open; el server los descarta).
         ...(framesRef.current.length ? { fotogramas: framesRef.current.flatMap(r => r.frames).slice(0, 3) } : {}),
       })
       setSnackbar({ show: true, msg: "¡Gracias por alzar tu voz! Tu reporte fue registrado.", type: "success" })
@@ -271,7 +271,7 @@ export default function EncuestaWizard({ onComplete, onCancel, inline = false }:
     }
   }
 
-  // ---------- Evidencia: se sube directo a la nube al adjuntar ----------
+  // ---------- Evidencia: se sube al servidor local al adjuntar ----------
 
   const stageFiles = async (files: FileList | File[]) => {
     setUploadError(null)

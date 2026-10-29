@@ -1,4 +1,4 @@
--- migrate-005-analisis-cache.sql — caché del análisis IA en Neon
+-- migrate-005-analisis-cache.sql — caché del análisis IA en Postgres
 -- (antes vivía en IndexedDB del navegador). Un solo slot global.
 -- Idempotente.
 create table if not exists analisis_cache (

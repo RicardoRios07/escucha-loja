@@ -1,7 +1,7 @@
 /**
  * /api/reportes — reportes ciudadanos.
  * GET: lista pública (sin user_id ni direcciones exactas). ?limit= (def. 500, máx. 2000)
- * POST: crea un reporte (requiere sesión Google con onboarding completo).
+ * POST: crea un reporte (requiere sesión con onboarding completo).
  */
 import {
   CANTON_BBOX,
@@ -9,7 +9,6 @@ import {
   cargarEvidencia,
   currentUser,
   db,
-  esUrlBlobPropia,
   FRECUENCIAS,
   GRAVEDADES,
   rateOkDb,
@@ -19,7 +18,11 @@ import {
   type ApiRes,
   type EvidenciaApi,
 } from './_lib.js'
-import { validarFotosIA } from './_vision.js'
+import {
+  borrarEvidenciasLocales,
+  esUrlEvidenciaLocal,
+  validarEvidenciaLocal,
+} from './_media.js'
 
 export interface PublicRow {
   id: string
@@ -147,31 +150,35 @@ export default async function handler(req: ApiReq, res: ApiRes) {
       const parroquiaId = str(b.parroquia_id, 80)
       const barrioId = str(b.barrio_id, 120)
 
-      // Evidencia ya subida al Blob (el navegador sube directo vía token).
+      // Evidencia ya subida al disco local (ver /api/evidencia/upload).
       const evIn = Array.isArray(b.evidencia) ? b.evidencia.slice(0, 3) : []
       const evOk: { url: string; kind: 'foto' | 'video'; duracion_s: number | null; origen: 'foto' | 'video' }[] = []
       for (const e of evIn) {
         const o = e as { url?: unknown; kind?: unknown; duracion_s?: unknown }
-        if (typeof o.url !== 'string' || !esUrlBlobPropia(o.url)) continue
+        if (typeof o.url !== 'string' || !esUrlEvidenciaLocal(o.url)) continue
         if (o.kind !== 'foto' && o.kind !== 'video') continue
         const dur = typeof o.duracion_s === 'number' && Number.isFinite(o.duracion_s) ? Math.round(o.duracion_s) : null
         evOk.push({ url: o.url.slice(0, 500), kind: o.kind, duracion_s: dur, origen: o.kind })
       }
 
       // Fotogramas de vídeo extraídos en el navegador (máx 3 por reporte).
-      // No ocupan slot de evidencia visible: solo se validan con la misma
-      // capa Vision (que evalúa `medical` para origen video) y NO se persisten.
+      // No ocupan slot de evidencia visible: solo se validan localmente y NO
+      // se persisten (se borran del disco al terminar).
       const fgIn = Array.isArray(b.fotogramas) ? b.fotogramas.slice(0, 3) : []
+      const fotogramas: string[] = []
       for (const u of fgIn) {
-        if (typeof u !== 'string' || !esUrlBlobPropia(u)) continue
-        evOk.push({ url: u.slice(0, 500), kind: 'foto', duracion_s: null, origen: 'video' })
+        if (typeof u !== 'string' || !esUrlEvidenciaLocal(u)) continue
+        const url = u.slice(0, 500)
+        fotogramas.push(url)
+        evOk.push({ url, kind: 'foto', duracion_s: null, origen: 'video' })
       }
 
-      // Validar que las fotos no sean IA/gore (fail-open: fallos solo se loguean).
+      // Validación 100% local (magic bytes + firmas de metadatos IA).
       try {
-        await validarFotosIA(evOk)
+        await validarEvidenciaLocal(evOk)
       } catch (e) {
-        const msg = e instanceof Error ? e.message : 'La foto no pasó la validación automática.'
+        await borrarEvidenciasLocales(fotogramas)
+        const msg = e instanceof Error ? e.message : 'La evidencia no pasó la validación local.'
         res.status(422).json({ error: msg })
         return
       }
@@ -184,11 +191,10 @@ export default async function handler(req: ApiReq, res: ApiRes) {
         await db().query(
           `insert into reportes
              (user_id, categoria_code, descripcion, lat, lng,
-              geom, parroquia_id, barrio_id, gravedad, frecuencia, tiempo_problema,
+              parroquia_id, barrio_id, gravedad, frecuencia, tiempo_problema,
               afecta_movilidad, afecta_salud, ya_reportado_municipio,
               direccion_principal, calle_secundaria, referencia)
-           select $1,$2,$3,$4,$5, ST_SetSRID(ST_MakePoint($5,$4),4326)::geography,
-                   $6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16
+           select $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16
            where (select count(*) from reportes
                   where user_id = $1 and created_at > now() - interval '1 day') < $17
              and coalesce((select extract(epoch from (now() - max(created_at)))
@@ -224,11 +230,13 @@ export default async function handler(req: ApiReq, res: ApiRes) {
         return
       }
       for (const e of evOk) {
+        if (fotogramas.includes(e.url)) continue
         await db().query(
           'insert into evidencias (reporte_id, kind, storage_url, duracion_s) values ($1,$2,$3,$4)',
           [nuevoId, e.kind, e.url, e.duracion_s],
         )
       }
+      await borrarEvidenciasLocales(fotogramas)
       const pub = (await lista(2000)).find((r) => r.id === nuevoId) ?? null
       res.status(201).json({ reporte: pub })
       return

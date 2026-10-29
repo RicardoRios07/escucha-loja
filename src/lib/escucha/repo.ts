@@ -1,9 +1,9 @@
 /**
- * repo.ts — capa de datos contra Neon (vía /api/*) + evidencia en Vercel Blob.
+ * repo.ts — capa de datos contra Postgres local (vía /api/*) + evidencia en disco.
  * - useReportesPublicos: mapa, comunidad, landing (sin datos personales).
  * - useReportesAdmin: panel admin (con direcciones + contacto del autor).
  * - useMisReportes: reportes propios del vecino en sesión.
- * Nada persiste en el dispositivo: la evidencia sube directo a la nube.
+ * Nada persiste en el dispositivo: la evidencia vive en uploads/.
  */
 import { useCallback, useEffect, useState } from 'react'
 import type { CategoriaId } from './types'
@@ -115,11 +115,11 @@ export interface CrearReporteInput {
   direccionPrincipal: string
   calleSecundaria: string
   referencia: string
-  /** Adjuntos ya subidos a la nube (ver `subirEvidencia` en media.ts). */
+  /** Adjuntos ya subidos al servidor local (ver `subirEvidencia` en media.ts). */
   evidencia: MediaRemota[]
   /**
    * Fotogramas de vídeo extraídos en el navegador (máx 3, ver
-   * `extraerFotogramasDeVideo` en media.ts). Se validan con la capa Vision
+   * `extraerFotogramasDeVideo` en media.ts). Se validan localmente
    * sin persistirse ni ocupar slot de evidencia visible.
    */
   fotogramas?: string[]
@@ -160,9 +160,9 @@ export async function crearReporte(input: CrearReporteInput): Promise<MvpDenunci
   return mapearReporte(d.reporte)
 }
 
-/** Borra un blob huérfano del storage (requiere sesión). */
+/** Borra una evidencia huérfana del storage local (requiere sesión). */
 export async function eliminarEvidencia(url: string): Promise<void> {
-  const r = await fetch('/api/evidencia/token', {
+  const r = await fetch('/api/evidencia/delete', {
     method: 'POST',
     credentials: 'same-origin',
     headers: { 'Content-Type': 'application/json' },

@@ -1,6 +1,4 @@
-import { upload } from '@vercel/blob/client'
-
-/** Límites de evidencia por reporte (foto o video corto, directo a la nube). */
+/** Límites de evidencia por reporte (foto o video corto, guardado local). */
 export const MAX_MEDIA_FILES = 3
 export const MAX_VIDEO_SECONDS = 10
 export const MAX_FILE_BYTES = 25 * 1024 * 1024 // 25 MB por archivo
@@ -18,7 +16,7 @@ export interface MediaRef {
   createdAt: string // ISO
 }
 
-/** Un adjunto puede ser un dataURL heredado (string) o una URL remota (Vercel Blob). */
+/** Un adjunto puede ser un dataURL heredado (string) o una URL local de evidencia. */
 export type MediaItem = string | MediaRef | MediaRemota
 
 export interface MediaRemota {
@@ -37,35 +35,37 @@ export function isMediaRemota(item: MediaItem): item is MediaRemota {
   return typeof item !== 'string' && (item as MediaRemota).remoto === true
 }
 
-// ---------- Subida directa a la nube (sin almacenamiento local) ----------
-
-const EXT_POR_MIME: Record<string, string> = {
-  'image/jpeg': 'jpg',
-  'image/png': 'png',
-  'image/webp': 'webp',
-  'video/mp4': 'mp4',
-  'video/webm': 'webm',
-  'video/quicktime': 'mov',
-  'video/3gpp': '3gp',
-  'video/x-m4v': 'm4v',
-}
+// ---------- Subida al almacenamiento local del servidor ----------
 
 /**
- * Sube un archivo validado al Blob store y devuelve su referencia remota.
- * Nada queda en el dispositivo: el navegador envía directo a la nube.
+ * Sube un archivo validado a /api/evidencia/upload y devuelve su referencia.
+ * El servidor valida tipo real + firmas IA y lo guarda en uploads/.
  */
 export async function subirEvidencia(
   file: File,
   kind: 'foto' | 'video',
   duration?: number,
 ): Promise<MediaRemota> {
-  const ext = EXT_POR_MIME[file.type] ?? (kind === 'foto' ? 'jpg' : 'mp4')
-  const nombre = `${crypto.randomUUID()}.${ext}`
-  const subida = await upload(`evidencia/${nombre}`, file, {
-    access: 'public',
-    handleUploadUrl: '/api/evidencia/token',
+  const mime = file.type || (kind === 'foto' ? 'image/jpeg' : 'video/mp4')
+  const res = await fetch('/api/evidencia/upload', {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': mime },
+    body: file,
   })
-  return { remoto: true, kind, url: subida.url, duration }
+  if (!res.ok) {
+    let msg = `No se pudo subir la evidencia (${res.status})`
+    try {
+      const d = (await res.json()) as { error?: string }
+      if (d.error) msg = d.error
+    } catch {
+      /* cuerpo no JSON */
+    }
+    throw new Error(msg)
+  }
+  const data = (await res.json()) as { url?: string }
+  if (!data.url) throw new Error('El servidor no devolvió la URL de la evidencia')
+  return { remoto: true, kind, url: data.url, duration }
 }
 
 /** Hook: resuelve un MediaItem a URL usable en <img>/<video>. */
@@ -127,8 +127,8 @@ export function getVideoDuration(file: File | Blob): Promise<number> {
 
 /**
  * Extrae hasta 3 fotogramas de un vídeo (0.5s, mitad, final−1s) en el navegador
- * y los sube al Blob como fotos. Ilustran el caso sin persistirse ni ocupar slot
- * de evidencia visible (el server solo los valida con la capa Vision y los descarta).
+ * y los sube como fotos. Ilustran el caso sin persistirse ni ocupar slot de
+ * evidencia visible (el server los valida localmente y los borra).
  * Fail-open por fotograma: cualquier fallo se salta, nunca bloquea el envío.
  */
 export async function extraerFotogramasDeVideo(file: File, duration: number): Promise<string[]> {
@@ -138,7 +138,7 @@ export async function extraerFotogramasDeVideo(file: File, duration: number): Pr
     try {
       const blob = await fotogramaEnPng(file, ts[i])
       if (!blob) continue
-      const f = new File([blob], `fotograma-${i + 1}.png`, { type: 'image/png' })
+      const f = new File([blob], `fotograma-${i + 1}.jpg`, { type: 'image/jpeg' })
       const subida = await subirEvidencia(f, 'foto')
       urls.push(subida.url)
     } catch {

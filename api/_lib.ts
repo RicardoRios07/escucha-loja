@@ -1,9 +1,9 @@
 /**
- * api/_lib.ts — utilidades compartidas de las Functions (auth + Neon).
+ * api/_lib.ts — utilidades compartidas de las Functions (auth + Postgres local).
  * Sin dependencias de @vercel/node: tipos mínimos propios.
  */
 
-import { neon, type NeonQueryFunction } from '@neondatabase/serverless'
+import { Pool } from 'pg'
 import * as jose from 'jose'
 import { OAuth2Client } from 'google-auth-library'
 
@@ -40,10 +40,17 @@ function env(name: string): string {
   return v
 }
 
-let sqlClient: NeonQueryFunction<false, false> | null = null
-export function db(): NeonQueryFunction<false, false> {
-  if (!sqlClient) sqlClient = neon(env('DATABASE_URL'))
-  return sqlClient
+let pool: Pool | null = null
+export function db(): Pool {
+  if (!pool) {
+    pool = new Pool({
+      connectionString: env('DATABASE_URL'),
+      max: 10,
+      // En local no hay TLS; si apuntas a un Postgres remoto con sslmode=require
+      // basta con dejarlo en la URL (pg-connection-string lo interpreta).
+    })
+  }
+  return pool
 }
 
 /** Filas de un sql.query tolerando ambas formas del driver (array | {rows}). */
@@ -254,20 +261,6 @@ export async function cargarEvidencia(ids: string[]): Promise<Record<string, Evi
   return out
 }
 
-/** ¿URL https del Blob store propio? */
-export function esUrlBlobPropia(url: string): boolean {
-  try {
-    const u = new URL(url)
-    return (
-      u.protocol === 'https:' &&
-      (u.hostname.endsWith('.public.blob.vercel-storage.com') ||
-        u.hostname.endsWith('.blob.vercel-storage.com'))
-    )
-  } catch {
-    return false
-  }
-}
-
 /* ---------- rate limit en memoria (por IP, por endpoint) ---------- */
 
 const buckets = new Map<string, { n: number; reset: number }>()
@@ -293,7 +286,7 @@ export function rateOk(req: ApiReq, nombre: string, max: number, ventanaMs: numb
 }
 
 /**
- * Rate limit persistente en Neon (global entre instancias serverless).
+ * Rate limit persistente en Postgres (global entre procesos/instancias).
  * Ventanas de 1 minuto por (nombre, ip). Devuelve true si permitido.
  */
 export async function rateOkDb(req: ApiReq, nombre: string, max: number): Promise<boolean> {

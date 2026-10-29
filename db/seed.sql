@@ -1,5 +1,5 @@
 -- seed.sql — datos de prueba (idempotente por emails fijos)
--- Aplicar con: psql "$DATABASE_URL_UNPOOLED" -f db/seed.sql
+-- Aplicar con: node db/apply.mjs
 
 -- Usuarios demo (google_sub de prueba; en prod lo pone Google).
 insert into users (google_sub, email, nombre, celular, celular_verificado, terms_version, terms_aceptados_at, rol)
@@ -13,12 +13,11 @@ on conflict (email) do update set
 -- Coordenadas = centroides oficiales con jitter para no apilarse.
 with v as (select id from users where email = 'vecino.demo@escucha-loja.ec')
 insert into reportes
-  (user_id, categoria_code, descripcion, lat, lng, geom, parroquia_id, barrio_id,
+  (user_id, categoria_code, descripcion, lat, lng, parroquia_id, barrio_id,
    gravedad, frecuencia, tiempo_problema, afecta_movilidad, afecta_salud,
    ya_reportado_municipio, direccion_principal, calle_secundaria, referencia, estado)
 select
   v.id, x.categoria, x.descripcion, x.lat, x.lng,
-  ST_SetSRID(ST_MakePoint(x.lng, x.lat), 4326)::geography,
   x.parroquia, x.barrio, x.gravedad, x.frecuencia, x.tiempo,
   x.mov, x.salud, x.yarep, x.dir, x.calle, x.ref, 'recibido'
 from v cross join (values

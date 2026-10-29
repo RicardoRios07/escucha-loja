@@ -10,23 +10,14 @@
  * - Marca terms_version='v1' (el operador acepta al ejecutar este script).
  */
 import { randomBytes, scryptSync } from 'node:crypto'
-import { neon } from '@neondatabase/serverless'
-import fs from 'node:fs'
-import path from 'node:path'
+import { Client } from 'pg'
+import { databaseUrl, loadEnv } from './env.mjs'
 
-for (const f of ['.env', '.env.local']) {
-  const p = path.resolve(f)
-  if (!fs.existsSync(p)) continue
-  for (const line of fs.readFileSync(p, 'utf8').split('\n')) {
-    if (/^\s*#/.test(line)) continue
-    const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/)
-    if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^["']|["']$/g, '')
-  }
-}
+loadEnv()
 
 const email = (process.argv[2] || '').trim().toLowerCase()
 const password = process.env.ADMIN_PASSWORD || ''
-const url = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL
+const url = databaseUrl()
 
 if (!email || !email.includes('@')) {
   console.error('Uso: ADMIN_PASSWORD=... node scripts/crear-admin.mjs <email>')
@@ -37,7 +28,7 @@ if (password.length < 12) {
   process.exit(1)
 }
 if (!url) {
-  console.error('✗ Falta DATABASE_URL_UNPOOLED en .env')
+  console.error('✗ Falta DATABASE_URL en .env.local')
   process.exit(1)
 }
 
@@ -45,18 +36,23 @@ const salt = randomBytes(16)
 const key = scryptSync(password, salt, 64, { N: 16384, r: 8, p: 1 })
 const hash = `scrypt$16384$8$1$${salt.toString('hex')}$${key.toString('hex')}`
 
-const sql = neon(url)
-const q = (s, p) => sql.query(s, p).then((r) => (Array.isArray(r) ? r : r.rows))
-await sql.query(
-  `insert into users (google_sub, email, nombre, rol, password_hash, terms_version, terms_aceptados_at)
-   values (NULL, $1, 'Administrador', 'admin', $2, 'v1', now())
-   on conflict (email) do update set
-     rol = 'admin',
-     google_sub = NULL,
-     password_hash = excluded.password_hash,
-     terms_version = 'v1',
-     terms_aceptados_at = now()`,
-  [email, hash],
-)
-const row = (await q('select id, email, rol from users where email = $1', [email]))[0]
-console.log(`✓ admin listo: ${row.email} (rol ${row.rol}). Entra por /acceso.`)
+const client = new Client({ connectionString: url })
+try {
+  await client.connect()
+  await client.query(
+    `insert into users (google_sub, email, nombre, rol, password_hash, terms_version, terms_aceptados_at)
+     values (NULL, $1, 'Administrador', 'admin', $2, 'v1', now())
+     on conflict (email) do update set
+       rol = 'admin',
+       google_sub = NULL,
+       password_hash = excluded.password_hash,
+       terms_version = 'v1',
+       terms_aceptados_at = now()`,
+    [email, hash],
+  )
+  const { rows } = await client.query('select id, email, rol from users where email = $1', [email])
+  const row = rows[0]
+  console.log(`✓ admin listo: ${row.email} (rol ${row.rol}). Entra por /acceso.`)
+} finally {
+  await client.end().catch(() => {})
+}
