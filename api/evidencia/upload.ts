@@ -47,6 +47,7 @@ export default async function handler(req: ApiReq, res: ApiRes) {
     try {
       validarContenido(req.body, kind, mime)
     } catch (e) {
+      console.warn(`[media] rechazo tipo="${mime}" bytes=${req.body.length}`)
       const msg = e instanceof Error ? e.message : 'La evidencia no pasó la validación local.'
       res.status(422).json({ error: msg })
       return
